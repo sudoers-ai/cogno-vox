@@ -77,16 +77,19 @@ ruff check cogno_vox && mypy cogno_vox
 `tests/integration` runs end-to-end against real local servers and **auto-skips**
 unless pointed at them (same pattern as `cogno-engram`'s `ENGRAM_TEST_DSN`).
 Validated against `fedirz/faster-whisper-server` (`Systran/faster-whisper-small`)
-and `ghcr.io/remsky/kokoro-fastapi-cpu`:
+and `ghcr.io/remsky/kokoro-fastapi-cpu`. The bundled `docker-compose.yml` brings
+both up:
 
 ```bash
-docker run -d -p 127.0.0.1:8000:8000 fedirz/faster-whisper-server:latest-cpu
-docker run -d -p 127.0.0.1:8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest
+docker compose up -d           # whisper :8000, kokoro :8880
 
 VOX_TEST_WHISPER_URL=http://localhost:8000 \
 VOX_TEST_KOKORO_URL=http://localhost:8880/v1 \
 pytest tests/integration -q   # synth (Kokoro) -> transcribe (Whisper) round-trip
 ```
+
+See [`docs/HOST_INTEGRATION.md`](docs/HOST_INTEGRATION.md) for wiring `cogno-vox`
+onto the two edges of the pipeline.
 
 ## License
 

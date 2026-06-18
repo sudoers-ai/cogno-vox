@@ -1,0 +1,41 @@
+# cogno-vox — local STT/TTS servers for development & the live integration suite.
+#
+# Brings up the two OpenAI-compatible servers cogno-vox talks to:
+#   - Whisper (STT)  : faster-whisper-server  -> http://localhost:8000
+#   - Kokoro (TTS)   : kokoro-fastapi         -> http://localhost:8880
+#
+# Usage:
+#   docker compose up -d
+#   VOX_TEST_WHISPER_URL=http://localhost:8000 \
+#   VOX_TEST_KOKORO_URL=http://localhost:8880/v1 \
+#   pytest tests/integration -q
+#
+# Both default to CPU images. For NVIDIA GPUs, swap the images for the *-gpu
+# variants and uncomment the `deploy.resources` blocks below.
+
+services:
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: cogno_whisper
+    restart: unless-stopped
+    environment:
+      - WHISPER__MODEL=${WHISPER_MODEL:-Systran/faster-whisper-small}
+    ports:
+      - "127.0.0.1:8000:8000"
+    # GPU (NVIDIA): use image fedirz/faster-whisper-server:latest-cuda and:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: cogno_kokoro
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8880:8880"
+    # GPU (NVIDIA): use image ghcr.io/remsky/kokoro-fastapi-gpu:latest and add
+    # the same deploy.resources block as above.
