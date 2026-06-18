@@ -77,6 +77,7 @@ async def test_synthesizer_first_tier_wins():
     assert result.tier == "local:kokoro"
     assert result.fmt == "opus"
     assert result.nbytes == len(b"OPUSDATA")
+    assert result.chars == len("olá mundo")   # TTS billable unit (input text length)
     assert s2.calls == 0
 
 
