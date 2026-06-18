@@ -20,8 +20,17 @@ from __future__ import annotations
 import base64
 import logging
 import time
+from typing import Optional
 
 import httpx
+
+from cogno_homeo import (
+    CircuitBreaker,
+    MetricsSink,
+    NoCandidateAvailable,
+    RetryPolicy,
+    resilient_call,
+)
 
 from cogno_vox.ports import TranscriberBackend, TranscriptionError
 from cogno_vox.types import SUPPORTED_INPUT_FORMATS, TranscriptionResult
@@ -245,15 +254,31 @@ class BedrockTranscriber:
 # ── Fallback chain ────────────────────────────────────────────────────────
 
 class FallbackTranscriber:
-    """Tries each tier in order; first non-empty transcription wins."""
+    """Tries each tier in order; first non-empty transcription wins.
 
-    def __init__(self, backends: list[TranscriberBackend]) -> None:
+    The failover loop runs over :func:`cogno_homeo.resilient_call`, so a host can
+    opt into a circuit breaker / retry / metrics seam by passing them in; with
+    none supplied it behaves like the historical "first non-empty tier wins"
+    chain. An empty transcription counts as a failure (failover + breaker trip).
+    """
+
+    def __init__(
+        self,
+        backends: list[TranscriberBackend],
+        *,
+        breaker: Optional[CircuitBreaker] = None,
+        policy: Optional[RetryPolicy] = None,
+        metrics: Optional[MetricsSink] = None,
+    ) -> None:
         if not backends:
             raise TranscriptionError(
                 "No transcriber tiers configured. Provide at least one tier "
                 "(local server URL or a cloud API key)."
             )
         self.backends = backends
+        self._breaker = breaker
+        self._policy = policy
+        self._metrics = metrics
 
     @property
     def name(self) -> str:
@@ -271,16 +296,22 @@ class FallbackTranscriber:
                 f"{', '.join(sorted(SUPPORTED_INPUT_FORMATS))}"
             )
 
-        for i, backend in enumerate(self.backends):
+        async def attempt(backend: TranscriberBackend) -> TranscriptionResult:
             t0 = time.perf_counter()
             text = await backend.transcribe(audio, filename)
             elapsed_ms = (time.perf_counter() - t0) * 1000
             if text:
                 log.info("stage=STT tier=%s ms=%.0f chars=%d",
                          backend.name, elapsed_ms, len(text))
-                return TranscriptionResult(text=text, tier=backend.name,
-                                           elapsed_ms=elapsed_ms)
-            log.warning("transcriber %s empty; failover (%d/%d)",
-                        backend.name, i + 1, len(self.backends))
+            else:
+                log.warning("transcriber %s empty; failover", backend.name)
+            return TranscriptionResult(text=text, tier=backend.name, elapsed_ms=elapsed_ms)
 
-        raise TranscriptionError("All transcriber tiers failed.")
+        try:
+            return await resilient_call(
+                self.backends, attempt,
+                key=lambda b: b.name, is_success=lambda r: bool(r.text),
+                breaker=self._breaker, policy=self._policy, metrics=self._metrics,
+            )
+        except NoCandidateAvailable:
+            raise TranscriptionError("All transcriber tiers failed.")

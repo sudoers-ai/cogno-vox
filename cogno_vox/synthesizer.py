@@ -20,8 +20,17 @@ from __future__ import annotations
 import base64
 import logging
 import time
+from typing import Optional
 
 import httpx
+
+from cogno_homeo import (
+    CircuitBreaker,
+    MetricsSink,
+    NoCandidateAvailable,
+    RetryPolicy,
+    resilient_call,
+)
 
 from cogno_vox.audio_utils import pcm_to_opus
 from cogno_vox.ports import SynthesisError, SynthesizerBackend
@@ -274,12 +283,28 @@ class GeminiSynthesizer:
 # ── Fallback chain ────────────────────────────────────────────────────────
 
 class FallbackSynthesizer:
-    """Tries each tier in order; first non-empty audio wins."""
+    """Tries each tier in order; first non-empty audio wins.
 
-    def __init__(self, backends: list[SynthesizerBackend]) -> None:
+    The failover loop runs over :func:`cogno_homeo.resilient_call`, so a host can
+    opt into a circuit breaker / retry / metrics seam; with none supplied it
+    behaves like the historical "first non-empty tier wins" chain. Empty audio
+    counts as a failure (failover + breaker trip).
+    """
+
+    def __init__(
+        self,
+        backends: list[SynthesizerBackend],
+        *,
+        breaker: Optional[CircuitBreaker] = None,
+        policy: Optional[RetryPolicy] = None,
+        metrics: Optional[MetricsSink] = None,
+    ) -> None:
         if not backends:
             raise SynthesisError("No synthesizer tiers configured.")
         self.backends = backends
+        self._breaker = breaker
+        self._policy = policy
+        self._metrics = metrics
 
     @property
     def name(self) -> str:
@@ -288,16 +313,25 @@ class FallbackSynthesizer:
     async def synthesize(self, text: str) -> SynthesisResult:
         if not text:
             raise SynthesisError("Empty text.")
-        for i, backend in enumerate(self.backends):
+
+        async def attempt(backend: SynthesizerBackend) -> SynthesisResult:
             t0 = time.perf_counter()
             audio = await backend.synthesize(text)
             elapsed_ms = (time.perf_counter() - t0) * 1000
             if audio:
-                fmt = getattr(backend, "fmt", "opus")
                 log.info("stage=TTS tier=%s ms=%.0f bytes=%d",
                          backend.name, elapsed_ms, len(audio))
-                return SynthesisResult(audio=audio, fmt=fmt, tier=backend.name,
-                                       elapsed_ms=elapsed_ms)
-            log.warning("synthesizer %s empty; failover (%d/%d)",
-                        backend.name, i + 1, len(self.backends))
-        raise SynthesisError("All synthesizer tiers failed.")
+            else:
+                log.warning("synthesizer %s empty; failover", backend.name)
+            fmt = getattr(backend, "fmt", "opus")
+            return SynthesisResult(audio=audio, fmt=fmt, tier=backend.name,
+                                   elapsed_ms=elapsed_ms)
+
+        try:
+            return await resilient_call(
+                self.backends, attempt,
+                key=lambda b: b.name, is_success=lambda r: bool(r.audio),
+                breaker=self._breaker, policy=self._policy, metrics=self._metrics,
+            )
+        except NoCandidateAvailable:
+            raise SynthesisError("All synthesizer tiers failed.")

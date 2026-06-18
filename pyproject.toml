@@ -21,9 +21,10 @@ classifiers = [
     "Operating System :: OS Independent",
     "Typing :: Typed",
 ]
-# The CORE (ports + OpenAI-compatible HTTP backends + fallback chains) needs only httpx.
+# The CORE (ports + OpenAI-compatible HTTP backends + fallback chains) needs httpx;
+# the fallback chains' resilience (breaker/retry/metrics) comes from cogno-homeo.
 # Provider SDKs are lazy-imported behind the optional extras below.
-dependencies = ["httpx>=0.24"]
+dependencies = ["httpx>=0.24", "cogno-homeo"]
 
 [project.urls]
 Homepage = "https://github.com/sudoers-ai/cogno-vox"
