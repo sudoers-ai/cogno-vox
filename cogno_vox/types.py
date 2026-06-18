@@ -73,6 +73,7 @@ class SynthesisResult:
     tier: str            # "<provider>:<model>" that produced the audio
     elapsed_ms: float
     nbytes: int = 0
+    chars: int = 0       # input-text length — the TTS billable unit (for cogno-meter)
 
     def __post_init__(self) -> None:
         if not self.nbytes:

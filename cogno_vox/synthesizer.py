@@ -325,7 +325,7 @@ class FallbackSynthesizer:
                 log.warning("synthesizer %s empty; failover", backend.name)
             fmt = getattr(backend, "fmt", "opus")
             return SynthesisResult(audio=audio, fmt=fmt, tier=backend.name,
-                                   elapsed_ms=elapsed_ms)
+                                   elapsed_ms=elapsed_ms, chars=len(text))
 
         try:
             return await resilient_call(
