@@ -88,7 +88,7 @@ class OpenAICompatSynthesizer:
                 resp.raise_for_status()
                 return resp.content
         except Exception as exc:
-            log.warning("synthesizer %s failed: %s", self.name, exc)
+            log.warning("stage=TTS event=tier_failed tier=%s error=%s", self.name, exc)
             return b""
 
 
@@ -149,7 +149,7 @@ class GrokSynthesizer:
                 resp.raise_for_status()
                 return resp.content
         except Exception as exc:
-            log.warning("synthesizer %s failed: %s", self.name, exc)
+            log.warning("stage=TTS event=tier_failed tier=%s error=%s", self.name, exc)
             return b""
 
 
@@ -209,7 +209,7 @@ class ElevenLabsSynthesizer:
                 resp.raise_for_status()
                 return resp.content
         except Exception as exc:
-            log.warning("synthesizer %s failed: %s", self.name, exc)
+            log.warning("stage=TTS event=tier_failed tier=%s error=%s", self.name, exc)
             return b""
 
 
@@ -276,7 +276,7 @@ class GeminiSynthesizer:
                     return b""
                 return pcm_to_opus(base64.b64decode(audio_b64), sample_rate=24000)
         except Exception as exc:
-            log.warning("synthesizer %s failed: %s", self.name, exc)
+            log.warning("stage=TTS event=tier_failed tier=%s error=%s", self.name, exc)
             return b""
 
 
@@ -322,7 +322,7 @@ class FallbackSynthesizer:
                 log.info("stage=TTS tier=%s ms=%.0f bytes=%d",
                          backend.name, elapsed_ms, len(audio))
             else:
-                log.warning("synthesizer %s empty; failover", backend.name)
+                log.warning("stage=TTS event=tier_empty tier=%s reason=failover", backend.name)
             fmt = getattr(backend, "fmt", "opus")
             return SynthesisResult(audio=audio, fmt=fmt, tier=backend.name,
                                    elapsed_ms=elapsed_ms, chars=len(text))
