@@ -116,7 +116,7 @@ class OpenAICompatTranscriber:
                 resp.raise_for_status()
                 return resp.json().get("text", "")
         except Exception as exc:
-            log.warning("transcriber %s failed: %s", self.name, exc)
+            log.warning("stage=STT event=tier_failed tier=%s error=%s", self.name, exc)
             return ""
 
 
@@ -169,7 +169,7 @@ class GeminiTranscriber:
                         return parts[0].get("text", "").strip()
                 return ""
         except Exception as exc:
-            log.warning("transcriber %s failed: %s", self.name, exc)
+            log.warning("stage=STT event=tier_failed tier=%s error=%s", self.name, exc)
             return ""
 
 
@@ -247,7 +247,7 @@ class BedrockTranscriber:
             # boto3 is sync; keep the event loop free under concurrency.
             return await asyncio.to_thread(_call)
         except Exception as exc:
-            log.warning("transcriber %s failed: %s", self.name, exc)
+            log.warning("stage=STT event=tier_failed tier=%s error=%s", self.name, exc)
             return ""
 
 
@@ -304,7 +304,7 @@ class FallbackTranscriber:
                 log.info("stage=STT tier=%s ms=%.0f chars=%d",
                          backend.name, elapsed_ms, len(text))
             else:
-                log.warning("transcriber %s empty; failover", backend.name)
+                log.warning("stage=STT event=tier_empty tier=%s reason=failover", backend.name)
             return TranscriptionResult(text=text, tier=backend.name, elapsed_ms=elapsed_ms)
 
         try:
