@@ -53,6 +53,9 @@ include = ["cogno_vox*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Put the repo root on sys.path so tests can import the decoupled `cognobench`
+# harness (not part of the installed wheel — packages.find is cogno_vox*).
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 110
