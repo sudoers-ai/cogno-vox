@@ -2,7 +2,7 @@
 
 **Voice/audio I/O edge for the [Cogno](https://github.com/sudoers-ai/cogno-anima) cognitive pipeline** — speech-to-text in, text-to-speech out, behind provider-agnostic fallback chains.
 
-`cogno-vox` is the *mouth and ears* of Cogno. Where [`cogno-anima`](https://github.com/sudoers-ai/cogno-anima) is the *mind* (pure cognition) and [`cogno-engram`](https://github.com/sudoers-ai/cogno-engram) is the *body* (memory/persistence), `cogno-vox` is the **transport edge** that sits on the two boundaries of the pipeline:
+`cogno-vox` is the *mouth and ears* of Cogno. Where [`cogno-anima`](https://github.com/sudoers-ai/cogno-anima) is the *mind* (pure cognition) and [`cogno-engram`](https://github.com/sudoers-ai/cogno-engram) is the *memory* (persistence substrate), `cogno-vox` is the **transport edge** that sits on the two boundaries of the pipeline:
 
 ```
 gateway ──▶ [vox STT] ──▶ cogno-anima (NOUMENO…SUPEREGO) ──▶ [vox TTS] ──▶ gateway
@@ -63,6 +63,21 @@ out = await create_synthesizer(config).synthesize("Olá, tudo bem?")
 ## What stays in the host
 
 Provider/model selection, RBAC premium gating, BYOK & key rotation, the channel delivery (`sendVoice`/`sendMedia`) and the channel-mandated format choice. `cogno-vox` offers `opus`/`mp3`; the host decides.
+
+## The Cogno ecosystem
+
+`cogno-vox` is one organ of **[Cogno](https://github.com/sudoers-ai)** — a family of
+small, composable, Apache-2.0 libraries that together form a complete
+conversational-agent platform. Each library owns a single concern and stays
+infra-agnostic; a **host** assembles them into a running agent:
+
+![The Cogno ecosystem](docs/assets/cogno-ecosystem.svg)
+
+The open-source libraries are the organs; the **host is the body** that joins
+them. Our reference host — `cogno-host`, with its `cogno-ui` dashboard — is the
+private product layer, but it holds no special powers: everything it does rides
+on the public seams documented in each library's `docs/HOST_INTEGRATION.md`, so
+you can assemble a body of your own.
 
 ## Develop
 
