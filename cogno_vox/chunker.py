@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import re
 
+from cogno_vox.text_prep import clean_text_for_tts
+
 # ~130 words/min in pt-BR → ~65 words ≈ 30 seconds of speech.
 TTS_MAX_WORDS_PER_SEGMENT = 65
 TTS_MAX_SEGMENTS = 10  # safety cap
@@ -30,7 +32,11 @@ def split_text_for_tts(
     if not text or not text.strip():
         return []
 
-    text = text.strip()
+    # Defensive: a caller that chunks first and calls a backend directly (bypassing
+    # FallbackSynthesizer) still gets emoji/markdown-free segments. Idempotent.
+    text = clean_text_for_tts(text)
+    if not text:
+        return []
     words = text.split()
     if len(words) <= max_words:
         return [text]

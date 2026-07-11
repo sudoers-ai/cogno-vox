@@ -34,6 +34,7 @@ from cogno_homeo import (
 
 from cogno_vox.audio_utils import pcm_to_opus
 from cogno_vox.ports import SynthesisError, SynthesizerBackend
+from cogno_vox.text_prep import clean_text_for_tts
 from cogno_vox.types import SynthesisResult
 
 log = logging.getLogger(__name__)
@@ -311,6 +312,10 @@ class FallbackSynthesizer:
         return self.backends[0].name
 
     async def synthesize(self, text: str) -> SynthesisResult:
+        # Strip emoji / markdown decoration ONCE here so every tier speaks the words, not the
+        # symbols (a reply is written for the eye — 😊, **bold**, a raw link URL). ``chars`` then
+        # reflects what is actually spoken (also the honest number to meter).
+        text = clean_text_for_tts(text)
         if not text:
             raise SynthesisError("Empty text.")
 
