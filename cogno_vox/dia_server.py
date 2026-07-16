@@ -59,7 +59,8 @@ class DiaEngine:
     def __init__(self, config_path: str, checkpoint_path: str, *,
                  compute_dtype: str = "float16", device: Optional[str] = None,
                  temperature: float = 1.2, cfg_scale: float = 3.0, top_p: float = 0.95,
-                 max_tokens: int = 2048) -> None:
+                 max_tokens: int = 2048) -> None:  # pragma: no cover — heavy-deps loader
+        # (torch/dia/safetensors; exercised by the live integration, not unit CI)
         import torch
         from dia.config import DiaConfig
         from dia.model import Dia
@@ -89,12 +90,19 @@ class DiaEngine:
 
 
 def _to_wav(audio: Any, sample_rate: int) -> bytes:
-    """Mono float PCM array → WAV bytes (stdlib wave — no soundfile at request time)."""
+    """Mono float PCM (ndarray or any float iterable) → WAV bytes.
+
+    Deliberately stdlib-only (wave + array): numpy always rides along with torch in a
+    real deployment, but depending on it here would drag numpy (and its py3.12-only
+    typing stubs) into the lib's own dev/CI surface for a simple clip-and-scale. The
+    pure-Python loop costs ~0.2 s for 10 s of 44.1 kHz audio — noise next to generation."""
+    import array
+    import sys
     import wave
 
-    import numpy as np
-
-    pcm = (np.clip(np.asarray(audio, dtype="float32"), -1.0, 1.0) * 32767).astype("<i2")
+    pcm = array.array("h", (int(max(-1.0, min(1.0, float(x))) * 32767) for x in audio))
+    if sys.byteorder == "big":  # pragma: no cover — WAV is little-endian
+        pcm.byteswap()
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)
