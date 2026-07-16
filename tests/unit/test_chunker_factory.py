@@ -101,3 +101,35 @@ def test_factory_propagates_emotion_dialect():
     )))
     assert getattr(chain.backends[0], "emotion_dialect", "") == "dia"
     assert getattr(chain.backends[1], "emotion_dialect", "") == ""
+
+
+def test_factory_local_opus_goes_via_wav_but_cloud_does_not():
+    # Kokoro's own opus encoder truncates the tail → the local tier re-encodes via WAV;
+    # cloud (OpenAI) and non-opus local tiers (the Dia wrapper) are untouched.
+    cfg = VoxConfig(synthesize_tiers=(
+        TierConfig(provider="local", model="kokoro", base_url="http://localhost:8880/v1",
+                   voice="pf_dora", response_format="opus"),
+        TierConfig(provider="openai", model="tts-1", api_key="k", response_format="opus"),
+        TierConfig(provider="dia", model="dia-ptbr", base_url="http://localhost:8881/v1",
+                   response_format="opus"),
+    ))
+    chain = create_synthesizer(cfg)
+    local, cloud, dia = chain.backends
+    assert local._opus_via_wav is True
+    assert cloud._opus_via_wav is False
+    assert dia._opus_via_wav is False
+
+
+def test_factory_sanitizes_kokoro_voice_on_openai_tier():
+    # The host's language→voice map picks Kokoro names ("pf_dora"); OpenAI 400s on them.
+    cfg = VoxConfig(synthesize_tiers=(
+        TierConfig(provider="openai", model="tts-1", api_key="k", voice="pf_dora"),
+        TierConfig(provider="openai", model="tts-1", api_key="k", voice="nova"),
+        TierConfig(provider="local", model="kokoro", base_url="http://localhost:8880/v1",
+                   voice="pf_dora"),
+    ))
+    chain = create_synthesizer(cfg)
+    bad, good, local = chain.backends
+    assert bad._voice == "alloy"       # invalid OpenAI voice → default
+    assert good._voice == "nova"       # a real OpenAI voice is kept
+    assert local._voice == "pf_dora"   # the local tier keeps the Kokoro voice

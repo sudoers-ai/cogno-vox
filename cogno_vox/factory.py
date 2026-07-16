@@ -26,6 +26,13 @@ from cogno_vox.transcriber import (
 )
 from cogno_vox.types import TierConfig, VoxConfig
 
+# OpenAI /v1/audio/speech voices (tts-1 / tts-1-hd / gpt-4o-mini-tts). Anything else
+# (e.g. a Kokoro voice name leaking from the host's language→voice map) → 400.
+_OPENAI_TTS_VOICES = frozenset({
+    "alloy", "ash", "ballad", "coral", "echo", "fable",
+    "nova", "onyx", "sage", "shimmer", "verse",
+})
+
 
 def _build_transcriber(cfg: TierConfig) -> TranscriberBackend:
     p = cfg.provider
@@ -67,9 +74,16 @@ def _build_synthesizer(cfg: TierConfig, default_fmt: str) -> SynthesizerBackend:
                                     voice=voice or "Kore", timeout=cfg.timeout)
     else:
         # "local" (Kokoro, a Dia wrapper) / "openai" → OpenAI-compatible HTTP
+        if p == "openai" and voice and voice not in _OPENAI_TTS_VOICES:
+            # The host's language→voice map picks LOCAL (Kokoro) voice names ("pf_dora");
+            # OpenAI rejects them with a 400, failing the whole tier. OpenAI voices are
+            # multilingual, so the default speaks the reply's language regardless.
+            voice = ""
         backend = OpenAICompatSynthesizer(
             base_url=cfg.base_url, model=cfg.model, api_key=cfg.api_key,
             voice=voice or "alloy", response_format=fmt, timeout=cfg.timeout,
+            # Kokoro's own opus encoder truncates the audio tail — encode locally instead.
+            opus_via_wav=(p == "local"),
         )
     # The tier's expressive-tag dialect rides on the backend instance so the fallback
     # chain can decorate per tier (a failover to a plain engine must not carry tags).

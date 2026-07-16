@@ -131,3 +131,49 @@ async def test_synthesizer_returns_empty_on_http_error(monkeypatch):
 async def test_synthesizer_empty_text_short_circuits():
     backend = OpenAICompatSynthesizer(base_url="http://x", model="tts-1")
     assert await backend.synthesize("") == b""
+
+
+async def test_opus_via_wav_requests_wav_and_reencodes(monkeypatch):
+    # Kokoro-fastapi's opus encoder truncates the audio tail — the workaround requests WAV
+    # and encodes Opus locally, still reporting fmt="opus" to the caller.
+    from cogno_vox import synthesizer as synth_mod
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"WAVBYTES")
+
+    _patch_async_client(monkeypatch, synth_mod, handler)
+    monkeypatch.setattr(synth_mod, "wav_to_opus", lambda b: b"OGG:" + b)
+
+    backend = OpenAICompatSynthesizer(
+        base_url="http://localhost:8880/v1", model="kokoro",
+        voice="pf_dora", response_format="opus", opus_via_wav=True,
+    )
+    audio = await backend.synthesize("olá, tudo bem?")
+
+    assert captured["body"]["response_format"] == "wav"   # WAV requested from the server
+    assert audio == b"OGG:WAVBYTES"                       # encoded locally
+    assert backend.fmt == "opus"                          # caller still sees opus
+
+
+async def test_opus_via_wav_inert_for_other_formats(monkeypatch):
+    from cogno_vox import synthesizer as synth_mod
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"WAVBYTES")
+
+    _patch_async_client(monkeypatch, synth_mod, handler)
+    backend = OpenAICompatSynthesizer(
+        base_url="http://localhost:8881/v1", model="dia-ptbr",
+        response_format="wav", opus_via_wav=True,
+    )
+    audio = await backend.synthesize("olá")
+    assert captured["body"]["response_format"] == "wav"
+    assert audio == b"WAVBYTES"                           # untouched — not an opus request
