@@ -42,14 +42,13 @@ dev = [
     # fastapi they importorskip and the module shows 0% coverage in CI.
     "fastapi>=0.110",
     "httpx>=0.27",
-    "numpy>=1.24",
 ]
 # Provider SDKs — install only what you wire up. The OpenAI-compatible HTTP
 # backends (faster-whisper-server, Kokoro, OpenAI, Groq) need no SDK, just httpx.
 bedrock = ["boto3>=1.34"]
 # The Dia expressive-TTS wrapper server (python -m cogno_vox.dia_server). The dia lib +
 # torch are installed separately (community checkpoints need the pre-0626 dia commit).
-server = ["fastapi>=0.110", "uvicorn>=0.29", "numpy>=1.24"]
+server = ["fastapi>=0.110", "uvicorn>=0.29"]
 
 [build-system]
 requires = ["setuptools>=77.0.3", "wheel"]
