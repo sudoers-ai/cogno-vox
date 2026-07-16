@@ -69,3 +69,73 @@ def clean_text_for_tts(text: str) -> str:
     text = re.sub(r"(?m)[ \t]+$", "", text)         # trailing spaces per line
     text = re.sub(r"\n{3,}", "\n\n", text)          # excess blank lines
     return text.strip()
+
+
+# ── emotion tags (expressive TTS) ─────────────────────────────────────────
+#
+# Some engines voice non-verbal cues from inline tags — each in its OWN dialect:
+# Dia (nari-labs) reads parenthetical cues like ``(laughs)``; Orpheus (Canopy)
+# reads angle-bracket tags like ``<laugh>``. The pipeline hands emotion around as
+# an engine-agnostic HINT (``"chuckle"``); the fallback chain calls
+# :func:`apply_emotion` per tier with that tier's declared dialect
+# (``TierConfig.emotion_dialect``) so a failover to a plain engine never carries
+# a tag it would read out loud ("laughs, parabéns!").
+
+_EMOTION_DIALECTS: dict[str, dict[str, str]] = {
+    # Dia — parenthetical cues (the ``[S1]`` speaker prefix is the server's concern, not a tag).
+    "dia": {
+        "laugh": "(laughs)", "chuckle": "(chuckle)", "sigh": "(sighs)",
+        "gasp": "(gasps)", "cough": "(coughs)", "clear_throat": "(clears throat)",
+    },
+    # Orpheus — angle-bracket tags.
+    "orpheus": {
+        "laugh": "<laugh>", "chuckle": "<chuckle>", "sigh": "<sigh>",
+        "gasp": "<gasp>", "cough": "<cough>", "groan": "<groan>",
+        "yawn": "<yawn>", "sniffle": "<sniffle>",
+    },
+}
+
+# Emotions voiced at the START of the reply (a sigh/gasp precedes the words); the rest
+# lands after the first sentence (a laugh reacts to what was just said).
+_LEADING_EMOTIONS = frozenset({"sigh", "gasp"})
+_SENTENCE_END_RE = re.compile(r"[.!?…]+(?=\s)")
+
+# Every known tag across dialects, longest first so "(clears throat)" wins over any prefix.
+_TAG_STRIP_RE = re.compile(
+    "|".join(re.escape(t) for d in _EMOTION_DIALECTS.values()
+             for t in sorted(d.values(), key=len, reverse=True)),
+    re.IGNORECASE,
+)
+
+
+def apply_emotion(text: str, emotion: str, dialect: str) -> str:
+    """Decorate ``text`` with ``dialect``'s tag for the engine-agnostic ``emotion`` hint.
+
+    Deterministic placement: leading for breath-like cues (sigh/gasp), after the first
+    sentence for reactive ones (laugh/chuckle), appended when there is no boundary.
+    Unknown emotion or dialect → ``text`` unchanged (fail-open: a hint must never
+    block speech). Run :func:`strip_emotion_tags` first when the text may carry tags."""
+    tag = _EMOTION_DIALECTS.get(dialect, {}).get(emotion, "")
+    if not tag or not text:
+        return text
+    if emotion in _LEADING_EMOTIONS:
+        return f"{tag} {text}"
+    m = _SENTENCE_END_RE.search(text)
+    if m:
+        return f"{text[:m.end()]} {tag}{text[m.end():]}"
+    return f"{text} {tag}"
+
+
+def strip_emotion_tags(text: str) -> str:
+    """Remove every known emotion tag (all dialects) from ``text``.
+
+    Whitelist-based — only the exact tags above are removed, so ordinary parentheses
+    ("(11) 99999-1234") survive. Safety net for two paths: a tag the LLM leaked into
+    the reply, and a tagged text reaching an engine with no ``emotion_dialect`` (which
+    would read "laughs" out loud)."""
+    if not text:
+        return ""
+    out = _TAG_STRIP_RE.sub("", text)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r" +([.,!?;:…])", r"\1", out)
+    return out.strip()
