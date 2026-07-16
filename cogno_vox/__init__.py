@@ -10,7 +10,7 @@ fallback chains.
 
 from cogno_vox.chunker import split_text_for_tts
 from cogno_vox.factory import create_synthesizer, create_transcriber
-from cogno_vox.text_prep import clean_text_for_tts
+from cogno_vox.text_prep import apply_emotion, clean_text_for_tts, strip_emotion_tags
 from cogno_vox.ports import (
     SynthesisError,
     SynthesizerBackend,
@@ -58,5 +58,7 @@ __all__ = [
     "ElevenLabsSynthesizer", "GeminiSynthesizer",
     # factory + utils
     "create_transcriber", "create_synthesizer", "split_text_for_tts",
+    "apply_emotion",
     "clean_text_for_tts",
+    "strip_emotion_tags",
 ]

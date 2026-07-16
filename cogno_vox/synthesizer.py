@@ -34,7 +34,7 @@ from cogno_homeo import (
 
 from cogno_vox.audio_utils import pcm_to_opus
 from cogno_vox.ports import SynthesisError, SynthesizerBackend
-from cogno_vox.text_prep import clean_text_for_tts
+from cogno_vox.text_prep import apply_emotion, clean_text_for_tts, strip_emotion_tags
 from cogno_vox.types import SynthesisResult
 
 log = logging.getLogger(__name__)
@@ -311,17 +311,24 @@ class FallbackSynthesizer:
     def name(self) -> str:
         return self.backends[0].name
 
-    async def synthesize(self, text: str) -> SynthesisResult:
+    async def synthesize(self, text: str, *, emotion: str = "") -> SynthesisResult:
         # Strip emoji / markdown decoration ONCE here so every tier speaks the words, not the
         # symbols (a reply is written for the eye — 😊, **bold**, a raw link URL). ``chars`` then
         # reflects what is actually spoken (also the honest number to meter).
-        text = clean_text_for_tts(text)
+        #
+        # ``emotion`` is an engine-agnostic hint ("chuckle") — decorated PER TIER below in that
+        # tier's dialect, so a failover to a plain engine never carries a tag it would read out
+        # loud. Any tag already inline in the reply is a leak (the pipeline hands emotion as a
+        # hint, not text) and is stripped up front for the same reason.
+        text = strip_emotion_tags(clean_text_for_tts(text))
         if not text:
             raise SynthesisError("Empty text.")
 
         async def attempt(backend: SynthesizerBackend) -> SynthesisResult:
+            dialect = getattr(backend, "emotion_dialect", "")
+            spoken = apply_emotion(text, emotion, dialect) if emotion and dialect else text
             t0 = time.perf_counter()
-            audio = await backend.synthesize(text)
+            audio = await backend.synthesize(spoken)
             elapsed_ms = (time.perf_counter() - t0) * 1000
             if audio:
                 log.info("stage=TTS tier=%s ms=%.0f bytes=%d",
@@ -330,7 +337,7 @@ class FallbackSynthesizer:
                 log.warning("stage=TTS event=tier_empty tier=%s reason=failover", backend.name)
             fmt = getattr(backend, "fmt", "opus")
             return SynthesisResult(audio=audio, fmt=fmt, tier=backend.name,
-                                   elapsed_ms=elapsed_ms, chars=len(text))
+                                   elapsed_ms=elapsed_ms, chars=len(spoken))
 
         try:
             return await resilient_call(

@@ -91,3 +91,13 @@ def test_factory_tier_response_format_overrides_default():
     )
     chain = create_synthesizer(cfg)
     assert chain.backends[0].fmt == "opus"
+
+
+def test_factory_propagates_emotion_dialect():
+    from cogno_vox import TierConfig, VoxConfig, create_synthesizer
+    chain = create_synthesizer(VoxConfig(synthesize_tiers=(
+        TierConfig(provider="local", model="dia-ptbr", base_url="http://x", emotion_dialect="dia"),
+        TierConfig(provider="local", model="kokoro", base_url="http://y"),
+    )))
+    assert getattr(chain.backends[0], "emotion_dialect", "") == "dia"
+    assert getattr(chain.backends[1], "emotion_dialect", "") == ""

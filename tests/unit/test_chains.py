@@ -107,3 +107,50 @@ async def test_synthesizer_empty_text_raises():
 def test_synthesizer_requires_tiers():
     with pytest.raises(SynthesisError):
         FallbackSynthesizer([])
+
+
+# ── emotion threading (per-tier dialect) ─────────────────────────────────
+
+class RecordingSynthesizer(StubSynthesizer):
+    """Stub that records the exact text it was asked to speak."""
+
+    def __init__(self, name: str, audio: bytes, dialect: str = "") -> None:
+        super().__init__(name, audio)
+        self.emotion_dialect = dialect
+        self.spoken: list[str] = []
+
+    async def synthesize(self, text: str) -> bytes:
+        self.spoken.append(text)
+        return await super().synthesize(text)
+
+
+async def test_emotion_decorates_only_capable_tier():
+    dia = RecordingSynthesizer("local:dia", b"AUDIO", dialect="dia")
+    chain = FallbackSynthesizer([dia])
+    result = await chain.synthesize("Que ótima notícia! Parabéns.", emotion="laugh")
+    assert dia.spoken == ["Que ótima notícia! (laughs) Parabéns."]
+    assert result.chars == len(dia.spoken[0])       # metering reflects what was spoken
+
+
+async def test_emotion_never_reaches_plain_tier_on_failover():
+    dia = RecordingSynthesizer("local:dia", b"", dialect="dia")      # falha → failover
+    kokoro = RecordingSynthesizer("local:kokoro", b"AUDIO")          # sem dialeto
+    chain = FallbackSynthesizer([dia, kokoro])
+    result = await chain.synthesize("Que ótima notícia! Parabéns.", emotion="laugh")
+    assert "(laughs)" in dia.spoken[0]              # tier capaz recebeu a tag
+    assert kokoro.spoken == ["Que ótima notícia! Parabéns."]   # o fallback NÃO
+    assert result.tier == "local:kokoro"
+
+
+async def test_leaked_inline_tags_are_stripped_for_all_tiers():
+    kokoro = RecordingSynthesizer("local:kokoro", b"AUDIO")
+    chain = FallbackSynthesizer([kokoro])
+    await chain.synthesize("Oi (laughs) tudo bem? <sigh> Certo.")
+    assert kokoro.spoken == ["Oi tudo bem? Certo."]   # nunca lê "laughs" em voz alta
+
+
+async def test_no_emotion_is_the_old_behaviour():
+    kokoro = RecordingSynthesizer("local:kokoro", b"AUDIO")
+    chain = FallbackSynthesizer([kokoro])
+    await chain.synthesize("Olá! Tudo certo.")
+    assert kokoro.spoken == ["Olá! Tudo certo."]

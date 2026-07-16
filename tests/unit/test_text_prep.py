@@ -90,3 +90,59 @@ async def test_fallback_synthesizer_speaks_cleaned_text():
     assert "😊" not in seen["text"] and "✅" not in seen["text"]
     assert seen["text"] == "Oi, marcado para 10h!"
     assert r.chars == len(seen["text"])       # metered on what is spoken, not the raw emoji text
+
+
+# ── emotion tags ──────────────────────────────────────────────────────────
+
+class TestApplyEmotion:
+    def test_reactive_tag_lands_after_first_sentence(self):
+        from cogno_vox import apply_emotion
+        out = apply_emotion("Que ótima notícia! Parabéns pelo cadastro.", "laugh", "dia")
+        assert out == "Que ótima notícia! (laughs) Parabéns pelo cadastro."
+
+    def test_breathy_tag_leads(self):
+        from cogno_vox import apply_emotion
+        assert apply_emotion("Vou verificar.", "sigh", "orpheus") == "<sigh> Vou verificar."
+        assert apply_emotion("Não acredito!", "gasp", "dia").startswith("(gasps) ")
+
+    def test_no_sentence_boundary_appends(self):
+        from cogno_vox import apply_emotion
+        assert apply_emotion("Sem pontuação final", "chuckle", "dia") == "Sem pontuação final (chuckle)"
+
+    def test_dialects_differ(self):
+        from cogno_vox import apply_emotion
+        assert "(chuckle)" in apply_emotion("Oi! Tudo bem?", "chuckle", "dia")
+        assert "<chuckle>" in apply_emotion("Oi! Tudo bem?", "chuckle", "orpheus")
+
+    def test_unknown_emotion_or_dialect_is_failopen(self):
+        from cogno_vox import apply_emotion
+        text = "Olá! Como vai?"
+        assert apply_emotion(text, "rage", "dia") == text          # emotion desconhecida
+        assert apply_emotion(text, "laugh", "kokoro") == text      # dialeto desconhecido
+        assert apply_emotion(text, "laugh", "") == text            # engine sem capability
+        assert apply_emotion("", "laugh", "dia") == ""             # texto vazio
+
+
+class TestStripEmotionTags:
+    def test_strips_both_dialects(self):
+        from cogno_vox import strip_emotion_tags
+        out = strip_emotion_tags("Oi (laughs) tudo bem? <sigh> Certo.")
+        assert out == "Oi tudo bem? Certo."
+
+    def test_case_insensitive_and_multiword(self):
+        from cogno_vox import strip_emotion_tags
+        assert strip_emotion_tags("Bem (Clears Throat) então.") == "Bem então."
+
+    def test_ordinary_parentheses_survive(self):
+        from cogno_vox import strip_emotion_tags
+        text = "Ligue (11) 99999-1234 (horário comercial)."
+        assert strip_emotion_tags(text) == text
+
+    def test_empty(self):
+        from cogno_vox import strip_emotion_tags
+        assert strip_emotion_tags("") == ""
+
+    def test_roundtrip_with_apply(self):
+        from cogno_vox import apply_emotion, strip_emotion_tags
+        text = "Que ótima notícia! Parabéns."
+        assert strip_emotion_tags(apply_emotion(text, "laugh", "dia")) == text

@@ -32,6 +32,10 @@ class TierConfig:
     api_key: str = ""
     voice: str = ""              # TTS only
     response_format: str = ""    # TTS only; "" → chain default
+    # TTS only: the expressive-tag dialect this engine understands ("dia", "orpheus" — see
+    # text_prep._EMOTION_DIALECTS). "" → plain engine: an emotion hint is ignored for this
+    # tier and any inline tag is stripped before it would be read out loud.
+    emotion_dialect: str = ""
     timeout: float = 60.0
     extra: dict[str, object] = field(default_factory=dict)
 

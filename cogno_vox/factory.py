@@ -47,28 +47,34 @@ def _build_synthesizer(cfg: TierConfig, default_fmt: str) -> SynthesizerBackend:
     p = cfg.provider
     fmt = cfg.response_format or default_fmt
     voice = cfg.voice
+    backend: SynthesizerBackend
     if p == "grok":
-        return GrokSynthesizer(
+        backend = GrokSynthesizer(
             api_key=cfg.api_key, base_url=cfg.base_url or "https://api.x.ai/v1",
             model=cfg.model, voice=voice or "eve", response_format=fmt,
             sample_rate=cast(int, cfg.extra.get("sample_rate", 24000)),
             timeout=cfg.timeout,
         )
-    if p == "elevenlabs":
-        return ElevenLabsSynthesizer(
+    elif p == "elevenlabs":
+        backend = ElevenLabsSynthesizer(
             api_key=cfg.api_key,
             base_url=cfg.base_url or "https://api.elevenlabs.io/v1",
             model=cfg.model, voice=voice or "JBFqnCBsd6RMkjVDRZzb",
             response_format=fmt, timeout=cfg.timeout,
         )
-    if p == "gemini":
-        return GeminiSynthesizer(api_key=cfg.api_key, model=cfg.model,
-                                 voice=voice or "Kore", timeout=cfg.timeout)
-    # "local" (Kokoro) / "openai" → OpenAI-compatible HTTP
-    return OpenAICompatSynthesizer(
-        base_url=cfg.base_url, model=cfg.model, api_key=cfg.api_key,
-        voice=voice or "alloy", response_format=fmt, timeout=cfg.timeout,
-    )
+    elif p == "gemini":
+        backend = GeminiSynthesizer(api_key=cfg.api_key, model=cfg.model,
+                                    voice=voice or "Kore", timeout=cfg.timeout)
+    else:
+        # "local" (Kokoro, a Dia wrapper) / "openai" → OpenAI-compatible HTTP
+        backend = OpenAICompatSynthesizer(
+            base_url=cfg.base_url, model=cfg.model, api_key=cfg.api_key,
+            voice=voice or "alloy", response_format=fmt, timeout=cfg.timeout,
+        )
+    # The tier's expressive-tag dialect rides on the backend instance so the fallback
+    # chain can decorate per tier (a failover to a plain engine must not carry tags).
+    setattr(backend, "emotion_dialect", cfg.emotion_dialect)
+    return backend
 
 
 def create_transcriber(config: VoxConfig) -> FallbackTranscriber:
