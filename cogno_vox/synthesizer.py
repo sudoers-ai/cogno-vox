@@ -32,7 +32,7 @@ from cogno_homeo import (
     resilient_call,
 )
 
-from cogno_vox.audio_utils import pcm_to_opus
+from cogno_vox.audio_utils import pcm_to_opus, wav_to_opus
 from cogno_vox.ports import SynthesisError, SynthesizerBackend
 from cogno_vox.text_prep import apply_emotion, clean_text_for_tts, strip_emotion_tags
 from cogno_vox.types import SynthesisResult
@@ -53,6 +53,7 @@ class OpenAICompatSynthesizer:
         voice: str = "alloy",
         response_format: str = "opus",
         timeout: float = 45.0,
+        opus_via_wav: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
@@ -60,6 +61,11 @@ class OpenAICompatSynthesizer:
         self._voice = voice
         self._fmt = response_format
         self._timeout = timeout
+        # Kokoro-fastapi's own opus encoder truncates the TAIL of the audio (~1.5s lost — a
+        # voice note ends mid-sentence). When set and opus is wanted, request WAV from the
+        # server and encode Opus-in-Ogg here (proper flush). The factory sets it for the
+        # local tier only; cloud providers encode opus correctly themselves.
+        self._opus_via_wav = opus_via_wav and response_format == "opus"
 
     @property
     def fmt(self) -> str:
@@ -81,12 +87,14 @@ class OpenAICompatSynthesizer:
             "model": self._model,
             "input": text,
             "voice": self._voice,
-            "response_format": self._fmt,
+            "response_format": "wav" if self._opus_via_wav else self._fmt,
         }
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
+                if self._opus_via_wav:
+                    return wav_to_opus(resp.content)
                 return resp.content
         except Exception as exc:
             log.warning("stage=TTS event=tier_failed tier=%s error=%s", self.name, exc)
