@@ -59,7 +59,8 @@ class DiaEngine:
     def __init__(self, config_path: str, checkpoint_path: str, *,
                  compute_dtype: str = "float16", device: Optional[str] = None,
                  temperature: float = 1.2, cfg_scale: float = 3.0, top_p: float = 0.95,
-                 max_tokens: int = 2048) -> None:
+                 max_tokens: int = 2048) -> None:  # pragma: no cover — heavy-deps loader
+        # (torch/dia/safetensors; exercised by the live integration, not unit CI)
         import torch
         from dia.config import DiaConfig
         from dia.model import Dia
