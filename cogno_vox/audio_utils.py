@@ -12,9 +12,17 @@ fallback chain moves on) rather than raising.
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 
 log = logging.getLogger(__name__)
+
+
+def ffmpeg_available() -> bool:
+    """True when the ``ffmpeg`` binary is on PATH. Used for a boot-time check: the local Kokoro
+    tier re-encodes opus via ffmpeg (``wav_to_opus``), and its degrade is STRICT (``b""``), so a
+    missing ffmpeg silently kills all voice output — worth surfacing at startup, not per turn."""
+    return shutil.which("ffmpeg") is not None
 
 
 def pcm_to_opus(pcm: bytes, sample_rate: int = 24000) -> bytes:
