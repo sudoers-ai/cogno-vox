@@ -133,3 +133,29 @@ def test_factory_sanitizes_kokoro_voice_on_openai_tier():
     assert bad._voice == "alloy"       # invalid OpenAI voice → default
     assert good._voice == "nova"       # a real OpenAI voice is kept
     assert local._voice == "pf_dora"   # the local tier keeps the Kokoro voice
+
+
+def test_factory_warns_when_ffmpeg_missing_for_local_opus(monkeypatch, caplog):
+    # C7: the local tier re-encodes opus via ffmpeg with a STRICT degrade — a missing ffmpeg
+    # silently kills voice. The factory must surface it at build time (boot), not per turn.
+    import cogno_vox.factory as fac
+    monkeypatch.setattr(fac, "ffmpeg_available", lambda: False)
+    cfg = VoxConfig(synthesize_tiers=(
+        TierConfig(provider="local", model="kokoro", base_url="http://localhost:8880/v1",
+                   voice="pf_dora", response_format="opus"),))
+    import logging
+    with caplog.at_level(logging.WARNING):
+        create_synthesizer(cfg)
+    assert any("ffmpeg_missing" in r.message for r in caplog.records)
+
+
+def test_factory_silent_when_ffmpeg_present(monkeypatch, caplog):
+    import cogno_vox.factory as fac
+    monkeypatch.setattr(fac, "ffmpeg_available", lambda: True)
+    cfg = VoxConfig(synthesize_tiers=(
+        TierConfig(provider="local", model="kokoro", base_url="http://localhost:8880/v1",
+                   response_format="opus"),))
+    import logging
+    with caplog.at_level(logging.WARNING):
+        create_synthesizer(cfg)
+    assert not any("ffmpeg_missing" in r.message for r in caplog.records)
