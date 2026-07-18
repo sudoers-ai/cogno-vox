@@ -94,7 +94,12 @@ class OpenAICompatSynthesizer:
                 resp = await client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 if self._opus_via_wav:
-                    return wav_to_opus(resp.content)
+                    # off-loop: ffmpeg is a blocking subprocess (up to 30s) — run in a
+                    # thread so concurrent turns/health checks never stall on an encode.
+                    # b"" on encoder failure → the chain fails this tier over (never WAV
+                    # mislabeled as the opus the caller promised the channel).
+                    import asyncio
+                    return await asyncio.to_thread(wav_to_opus, resp.content)
                 return resp.content
         except Exception as exc:
             log.warning("stage=TTS event=tier_failed tier=%s error=%s", self.name, exc)

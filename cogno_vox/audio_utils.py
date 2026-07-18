@@ -59,8 +59,12 @@ def wav_to_opus(audio: bytes) -> bytes:
 
     Companion to :func:`pcm_to_opus` for sources that return a full container instead of raw
     PCM — e.g. requesting ``wav`` from a Kokoro server (whose own ``opus`` encoder truncates
-    the tail of the audio) and encoding properly here. Same soft-degrade contract: on ffmpeg
-    failure the input is returned unchanged (the channel may still sniff and play it).
+    the tail of the audio) and encoding properly here.
+
+    Degrade contract is STRICT (unlike ``pcm_to_opus``): on ffmpeg failure it returns ``b""``.
+    The caller promised opus (``fmt`` is reported to the channel, which labels the voice note
+    ``audio/ogg``) — handing back WAV under that label breaks playback outright, whereas an
+    empty result makes the tier fail over to the next engine (or degrade to a text reply).
     """
     if not audio:
         return b""
@@ -76,10 +80,10 @@ def wav_to_opus(audio: bytes) -> bytes:
             return result.stdout
         log.warning("ffmpeg WAV->Opus failed: rc=%d stderr=%s",
                     result.returncode, result.stderr[:200])
-        return audio
+        return b""
     except FileNotFoundError:
-        log.warning("ffmpeg not found — returning original audio")
-        return audio
+        log.warning("ffmpeg not found — WAV->Opus unavailable, failing the tier over")
+        return b""
     except Exception as exc:
         log.warning("WAV->Opus conversion error: %s", exc)
-        return audio
+        return b""

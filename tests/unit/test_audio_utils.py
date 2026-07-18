@@ -39,3 +39,23 @@ def test_pcm_to_opus_degrades_on_nonzero_exit(monkeypatch):
     monkeypatch.setattr(au.subprocess, "run", lambda *a, **k: FakeProc())
     pcm = b"\x00\x01"
     assert pcm_to_opus(pcm) == pcm
+
+
+def test_wav_to_opus_fails_closed_without_ffmpeg(monkeypatch):
+    # STRICT degrade: the caller reports fmt="opus" to the channel — WAV under that label
+    # breaks playback, so a failed encode must return b"" (tier fails over), never the input.
+    import subprocess as sp
+
+    from cogno_vox import audio_utils
+
+    def _boom(*a, **k):
+        raise FileNotFoundError("ffmpeg")
+    monkeypatch.setattr(sp, "run", _boom)
+    assert audio_utils.wav_to_opus(b"RIFFxxxx") == b""
+
+    def _rc1(*a, **k):
+        class R:
+            returncode, stdout, stderr = 1, b"", b"err"
+        return R()
+    monkeypatch.setattr(sp, "run", _rc1)
+    assert audio_utils.wav_to_opus(b"RIFFxxxx") == b""
