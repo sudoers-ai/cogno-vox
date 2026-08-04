@@ -274,9 +274,12 @@ class GeminiSynthesizer:
         }
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
+                # key in the x-goog-api-key HEADER, not params: httpx merges params into request.url
+                # and embeds the url in its error message, so `key=...` would leak the tenant's key
+                # into the warning log below on any routine 400/429/5xx.
                 resp = await client.post(
-                    url, params={"key": self._api_key}, json=payload,
-                    headers={"Content-Type": "application/json"},
+                    url, json=payload,
+                    headers={"Content-Type": "application/json", "x-goog-api-key": self._api_key},
                 )
                 resp.raise_for_status()
                 cands = resp.json().get("candidates", [])
@@ -290,7 +293,9 @@ class GeminiSynthesizer:
                     return b""
                 return pcm_to_opus(base64.b64decode(audio_b64), sample_rate=24000)
         except Exception as exc:
-            log.warning("stage=TTS event=tier_failed tier=%s error=%s", self.name, exc)
+            status = getattr(getattr(exc, "response", None), "status_code", "")
+            log.warning("stage=TTS event=tier_failed tier=%s error=%s status=%s",
+                        self.name, type(exc).__name__, status)
             return b""
 
 

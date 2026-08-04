@@ -48,6 +48,40 @@ async def test_gemini_transcriber_no_key_short_circuits():
     assert await backend.transcribe(b"\x00\x01", "v.ogg") == ""
 
 
+async def test_gemini_transcriber_key_is_a_header_never_in_url(monkeypatch):
+    # SECURITY (audit 2026-08-04): the BYOK key must ride in the x-goog-api-key header, NOT the
+    # URL query string — httpx embeds the url in its error, so `?key=...` leaked the key into the
+    # tier_failed warning log on any routine 4xx/5xx.
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["key_header"] = request.headers.get("x-goog-api-key")
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+
+    _patch(monkeypatch, tr_mod, handler)
+    await GeminiTranscriber(api_key="super-secret-key").transcribe(b"\x00", "v.ogg")
+    assert "super-secret-key" not in seen["url"] and "key=" not in seen["url"]
+    assert seen["key_header"] == "super-secret-key"
+
+
+async def test_gemini_synth_key_is_a_header_never_in_url(monkeypatch):
+    import base64
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["key_header"] = request.headers.get("x-goog-api-key")
+        return httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"inlineData": {"data": base64.b64encode(b"P").decode()}}]}}]})
+
+    _patch(monkeypatch, syn_mod, handler)
+    monkeypatch.setattr(syn_mod, "pcm_to_opus", lambda pcm, sample_rate=24000: b"OGG")
+    await GeminiSynthesizer(api_key="super-secret-key").synthesize("hi")
+    assert "super-secret-key" not in seen["url"] and "key=" not in seen["url"]
+    assert seen["key_header"] == "super-secret-key"
+
+
 async def test_gemini_transcriber_empty_candidates(monkeypatch):
     _patch(monkeypatch, tr_mod, lambda r: httpx.Response(200, json={"candidates": []}))
     assert await GeminiTranscriber(api_key="g").transcribe(b"\x00", "v.ogg") == ""

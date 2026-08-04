@@ -152,14 +152,18 @@ class GeminiTranscriber:
                 ]
             }]
         }
+        # The key goes in the x-goog-api-key HEADER, never the URL query string: httpx embeds the
+        # full URL in its error message, and this except logs the failure — `?key=...` would write
+        # the tenant's BYOK key into the logs on any routine 400/429/5xx (a bad audio note is enough).
         url = (
             "https://generativelanguage.googleapis.com/v1beta/"
-            f"models/{self._model}:generateContent?key={self._api_key}"
+            f"models/{self._model}:generateContent"
         )
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(
-                    url, json=body, headers={"Content-Type": "application/json"}
+                    url, json=body,
+                    headers={"Content-Type": "application/json", "x-goog-api-key": self._api_key},
                 )
                 resp.raise_for_status()
                 cands = resp.json().get("candidates", [])
@@ -169,7 +173,10 @@ class GeminiTranscriber:
                         return parts[0].get("text", "").strip()
                 return ""
         except Exception as exc:
-            log.warning("stage=STT event=tier_failed tier=%s error=%s", self.name, exc)
+            # log the exception TYPE + status only — str(exc) may still carry a request URL.
+            status = getattr(getattr(exc, "response", None), "status_code", "")
+            log.warning("stage=STT event=tier_failed tier=%s error=%s status=%s",
+                        self.name, type(exc).__name__, status)
             return ""
 
 
