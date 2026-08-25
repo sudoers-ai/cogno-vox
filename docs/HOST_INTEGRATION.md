@@ -122,10 +122,14 @@ Two rules worth carrying across the boundary:
   and gently. Muting the profile there spends the feature everywhere except where it earns its
   keep.
 
-  So let those signals **steer** the shape instead of switching it off: down in energy, slower,
-  never warm-and-bright. The rule survives — nothing should make a PII turn sound cheerful —
-  but it belongs in the mapping, not in an early return. (This corrects an earlier version of
-  this guide, which said "→ plain voice" for both.)
+  So let **the somber ones** — PII, frustration, a handoff — **steer** the shape instead of
+  switching it off: down in energy, slower, never warm-and-bright. The rule survives — nothing
+  should make a PII turn sound cheerful — but it belongs in the mapping, not in an early return.
+
+  **Urgency is the member that goes the other way**, and carrying it in this list was an
+  over-reach a review caught: a pressed contact is not calmed by a slow read, they are kept
+  waiting. It steers `pace` to `fast` and leaves warmth alone. (Both halves correct an earlier
+  version of this guide, which said "→ plain voice" for the whole list.)
 
 An engine that cannot shape delivery ignores the profile. That is by design and never an error —
 do not treat an unshaped reply as a failure.
