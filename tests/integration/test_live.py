@@ -131,16 +131,25 @@ async def test_a_delivery_profile_does_not_break_an_engine_that_ignores_it():
 @needs_both
 async def test_shaping_does_not_cost_the_WORDS():
     """A profile changes HOW, never WHAT. If an engine honours it by whispering or rushing, the
-    listener pays — and the round trip is the cheapest place that shows up."""
-    phrase = "confirme a consulta de quinta-feira às quinze horas"
+    listener pays — and the round trip is the cheapest place that shows up.
+
+    Asserted as a COMPARISON between the shaped and plain runs, not against a fixed word set.
+    The first version checked a Portuguese phrase against expected Portuguese words and failed
+    on this server — which transcribes pt-BR audio into English — measuring the ASR's language
+    behaviour instead of the thing under test. What the claim is actually about is a delta, so
+    the plain run is the baseline and any content word it recovers must survive shaping.
+    """
+    phrase = "The quick brown fox jumps over the lazy dog."
     synthesizer, transcriber = _synthesizer("wav"), _transcriber()
 
     plain = await synthesizer.synthesize(phrase)
     shaped = await synthesizer.synthesize(
         phrase, delivery=DeliveryProfile(style="warm", pace="slow"))
+    assert plain.audio and shaped.audio
 
-    heard_plain = await transcriber.transcribe(plain.audio, filename="plain.wav")
-    heard_shaped = await transcriber.transcribe(shaped.audio, filename="shaped.wav")
-    for heard in (heard_plain, heard_shaped):
-        assert re.search(r"quinta", heard.text, re.I), heard.text
-        assert re.search(r"quinze|15", heard.text, re.I), heard.text
+    heard_plain = _words((await transcriber.transcribe(plain.audio, "plain.wav")).text)
+    heard_shaped = _words((await transcriber.transcribe(shaped.audio, "shaped.wav")).text)
+
+    content = {"quick", "brown", "fox", "jumps", "lazy", "dog"} & heard_plain
+    assert content, f"baseline itself lost the words: {heard_plain}"
+    assert content <= heard_shaped, f"shaping lost {content - heard_shaped} (heard {heard_shaped})"
