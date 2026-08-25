@@ -115,8 +115,17 @@ Two rules worth carrying across the boundary:
 * **the same source for text and voice.** If the host already suppressed a trait for this turn
   (humour on a somber message, detail on an escalation), the delivery profile must come from the
   *modulated* traits, not the declared ones — otherwise the reply reads sober and sounds cheerful.
-* **the existing cue blocklist still governs.** PII, a frustrated contact, urgency, a handoff →
-  plain voice. A delivery profile is a preference; those are a policy, and the policy wins.
+* **the cue blocklist governs differently here, and the difference is the point.** For an
+  `emotion` it is absolute: a laugh at an upset contact reads as mockery and has no gentler
+  version, so PII / frustration / urgency / a handoff must produce no cue at all. A delivery
+  DOES have a gentler version — and the upset contact is exactly who should be read to slowly
+  and gently. Muting the profile there spends the feature everywhere except where it earns its
+  keep.
+
+  So let those signals **steer** the shape instead of switching it off: down in energy, slower,
+  never warm-and-bright. The rule survives — nothing should make a PII turn sound cheerful —
+  but it belongs in the mapping, not in an early return. (This corrects an earlier version of
+  this guide, which said "→ plain voice" for both.)
 
 An engine that cannot shape delivery ignores the profile. That is by design and never an error —
 do not treat an unshaped reply as a failure.
