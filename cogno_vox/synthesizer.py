@@ -20,7 +20,7 @@ from __future__ import annotations
 import base64
 import logging
 import time
-from typing import Optional
+from typing import Optional, cast
 
 import httpx
 
@@ -33,8 +33,10 @@ from cogno_homeo import (
 )
 
 from cogno_vox.audio_utils import pcm_to_opus, wav_to_opus
-from cogno_vox.ports import SynthesisError, SynthesizerBackend
+from cogno_vox.delivery import as_instructions, as_voice_settings, shapes_delivery
+from cogno_vox.ports import DeliveryAwareBackend, SynthesisError, SynthesizerBackend
 from cogno_vox.text_prep import apply_emotion, clean_text_for_tts, strip_emotion_tags
+from cogno_vox.types import DeliveryProfile
 from cogno_vox.types import SynthesisResult
 
 log = logging.getLogger(__name__)
@@ -77,6 +79,18 @@ class OpenAICompatSynthesizer:
         return f"{'local' if local else 'openai'}:{self._model}"
 
     async def synthesize(self, text: str) -> bytes:
+        return await self._speak(text)
+
+    async def synthesize_shaped(self, text: str, delivery: DeliveryProfile) -> bytes:
+        """``DeliveryAwareBackend``: the profile becomes the ``instructions`` field.
+
+        A server that copies the OpenAI TTS shape but not the ``instructions`` field IGNORES an
+        unknown key — the same silence a plain engine gives — so this stays safe against the
+        local look-alikes this class also drives. An empty rendering sends nothing at all, which
+        keeps the byte-identical payload for a profile that says nothing."""
+        return await self._speak(text, as_instructions(delivery))
+
+    async def _speak(self, text: str, instructions: str = "") -> bytes:
         if not text:
             return b""
         url = f"{self._base_url}/audio/speech"
@@ -89,6 +103,8 @@ class OpenAICompatSynthesizer:
             "voice": self._voice,
             "response_format": "wav" if self._opus_via_wav else self._fmt,
         }
+        if instructions:
+            payload["instructions"] = instructions
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(url, headers=headers, json=payload)
@@ -205,6 +221,16 @@ class ElevenLabsSynthesizer:
         return f"elevenlabs:{self._model}"
 
     async def synthesize(self, text: str) -> bytes:
+        return await self._speak(text)
+
+    async def synthesize_shaped(self, text: str, delivery: DeliveryProfile) -> bytes:
+        """``DeliveryAwareBackend``: the profile becomes ``voice_settings`` numbers.
+
+        ``as_voice_settings`` returns the engine defaults with only the axes the caller set
+        overridden, so an empty profile sends exactly the payload ``synthesize`` sends."""
+        return await self._speak(text, as_voice_settings(delivery))
+
+    async def _speak(self, text: str, settings: "Optional[dict[str, float]]" = None) -> bytes:
         if not text:
             return b""
         url = f"{self._base_url}/text-to-speech/{self._voice}"
@@ -212,7 +238,7 @@ class ElevenLabsSynthesizer:
         payload = {
             "text": text,
             "model_id": self._model,
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+            "voice_settings": settings or {"stability": 0.5, "similarity_boost": 0.75},
         }
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -329,7 +355,8 @@ class FallbackSynthesizer:
     def name(self) -> str:
         return self.backends[0].name
 
-    async def synthesize(self, text: str, *, emotion: str = "") -> SynthesisResult:
+    async def synthesize(self, text: str, *, emotion: str = "",
+                         delivery: "Optional[DeliveryProfile]" = None) -> SynthesisResult:
         # Strip emoji / markdown decoration ONCE here so every tier speaks the words, not the
         # symbols (a reply is written for the eye — 😊, **bold**, a raw link URL). ``chars`` then
         # reflects what is actually spoken (also the honest number to meter).
@@ -346,7 +373,17 @@ class FallbackSynthesizer:
             dialect = getattr(backend, "emotion_dialect", "")
             spoken = apply_emotion(text, emotion, dialect) if emotion and dialect else text
             t0 = time.perf_counter()
-            audio = await backend.synthesize(spoken)
+            # A delivery profile is a PREFERENCE: a tier that cannot honour it speaks the same
+            # words unshaped, and that is a success, never a failover. Asked per tier rather
+            # than once for the chain, so a shaping tier failing over to a plain one degrades
+            # the delivery instead of the call. TWO questions, both required — can this ADAPTER
+            # carry a profile, and does this ENGINE declare a dialect for it.
+            if delivery is not None and shapes_delivery(backend, delivery):
+                # `shapes_delivery` already asserted the protocol; the cast is for the checker.
+                audio = await cast(DeliveryAwareBackend, backend).synthesize_shaped(
+                    spoken, delivery)
+            else:
+                audio = await backend.synthesize(spoken)
             elapsed_ms = (time.perf_counter() - t0) * 1000
             if audio:
                 log.info("stage=TTS tier=%s ms=%.0f bytes=%d",

@@ -21,8 +21,40 @@ Like `cogno-anima`'s `LLMBackend`/`Embedder` and `cogno-engram`'s three ports, e
 | --- | --- | --- |
 | `TranscriberBackend` (STT) | `transcribe(audio, filename) -> str` | OpenAI-compatible (faster-whisper-server / Groq / OpenAI), Gemini multimodal, Bedrock/Voxtral |
 | `SynthesizerBackend` (TTS) | `synthesize(text) -> bytes` | OpenAI-compatible (Kokoro / OpenAI), Grok, ElevenLabs, Gemini |
+| `DeliveryAwareBackend` (TTS, **optional**) | `synthesize_shaped(text, delivery) -> bytes` | OpenAI-compatible (`instructions`), ElevenLabs (`voice_settings`) |
 
 `OpenAICompat*` covers any `/v1/audio/transcriptions` or `/v1/audio/speech` server — local or cloud differ only by `base_url`/`api_key`, no SDK needed (just `httpx`).
+
+## Two ways to shape a voice
+
+Both are engine-agnostic in, engine-specific out, and both are **preferences** — an engine that cannot honour one speaks the same words and the call succeeds.
+
+| | What it is | How it travels |
+| --- | --- | --- |
+| **emotion** | one discrete non-verbal cue — `chuckle`, `sigh` | an inline tag in the tier's dialect (`(chuckle)` for Dia, `<chuckle>` for Orpheus) |
+| **delivery** | how the WHOLE utterance is said — three independent axes | engine config: `instructions` prose, or `voice_settings` numbers |
+
+```python
+from cogno_vox import DeliveryProfile
+
+await synthesizer.synthesize(
+    "Bom dia, tudo bem?",
+    emotion="chuckle",                                   # a cue, if the tier has a dialect
+    delivery=DeliveryProfile(style="warm", pace="slow"),  # a shape, if the tier can be shaped
+)
+```
+
+`style` (`warm|reserved|empathetic`), `pace` (`fast|steady|slow`), `energy` (`high|normal|low`) — every axis optional, `""` meaning "engine default". Not every engine has a lever for every axis: on ElevenLabs `pace` maps to `stability` as the closest approximation (stated, not hidden), and `energy` maps to **nothing** — the obvious candidate, `similarity_boost`, is voice *adherence*, so `high` would hold the read closer to its reference, the opposite of what was asked. Between a wrong mapping and none, none. Three flat axes rather than one mood label because the host derives them from separate signals and collapsing them would force it to pick a winner where there is none.
+
+`sanitize_delivery(raw) -> (profile, dropped)` is pure and total: anything in, a valid profile out, never an exception. An unknown value is **dropped, never guessed** — correcting `friendly` to `warm` would put a tone on a voice nobody asked for, while dropping falls back to the engine default. Log `dropped` once per configuration, not per turn.
+
+**Who can be shaped takes two answers, and both are required.** The *adapter* must be able to carry a profile — `DeliveryAwareBackend`, a second protocol like `ToolCallingBackend` beside `LLMBackend` in `cogno-anima` — **and** the *engine* must declare a dialect, `TierConfig(delivery_dialect="instructions"|"voice_settings")`.
+
+The second is not inferable, and a review measured the hole: `OpenAICompatSynthesizer` drives OpenAI, Kokoro, Dia **and** Orpheus over the same HTTP shape, so asking the class alone answered "which transport is this" — a different question wearing the right question's clothes — and `instructions` was being sent to two tag engines whose own docs ignore it. Declared per tier, exactly like `emotion_dialect`.
+
+Both are checked per tier, so a chain can mix a shaping engine with a plain one and a failover degrades the *delivery* instead of the call. A profile that sets no axis takes the byte-identical path the code took before the feature existed.
+
+`sanitize_delivery` is also the guard the **renderers** use, not just the entry point: a plain `dict` reaching `as_instructions` used to raise `AttributeError` from inside the backend's call and outside every `return b""` — which lost a voice note on a single-tier chain and recorded a circuit-breaker fault against a *healthy* engine on a mixed one.
 
 ## Async by design
 
@@ -64,6 +96,8 @@ out = await create_synthesizer(config).synthesize("Olá, tudo bem?")
 
 Provider/model selection, RBAC premium gating, BYOK & key rotation, the channel delivery (`sendVoice`/`sendMedia`) and the channel-mandated format choice. `cogno-vox` offers `opus`/`mp3`; the host decides.
 
+Deciding **what** the delivery should be is host-side too: `cogno-vox` owns only the translation into what a given engine can be told. The persona's traits, the contact's state and the turn's outcome are the host's to read — see `DeliveryProfile` above for the vocabulary it must produce.
+
 ## The Cogno ecosystem
 
 `cogno-vox` is one organ of **[Cogno](https://github.com/sudoers-ai)** — a family of
@@ -86,6 +120,16 @@ pip install -e ".[dev]"
 pytest tests/unit -q          # mocked HTTP, no network
 ruff check cogno_vox && mypy cogno_vox
 ```
+
+### Does shaping cost intelligibility?
+
+A delivery profile changes HOW, never WHAT — and the one thing that can go wrong unnoticed is an engine honouring it by whispering or rushing. The round-trip bench measures exactly that:
+
+```bash
+python3 voxbench.py --delivery "style=warm,pace=slow"     # WER must not regress
+```
+
+The report says whether the engine **APPLIED** or **IGNORED** the profile, because "the WER did not move" means two different things and only one of them is a result.
 
 ### Live integration tests (gated, auto-skip)
 

@@ -94,3 +94,41 @@ docker compose up -d           # whisper :8000, kokoro :8880
 ```
 
 See the README for the gated `pytest tests/integration` invocation.
+
+## Delivery profile — what the host must decide
+
+`cogno-vox` translates a `DeliveryProfile` into what each engine can be told. **Producing** it is
+the host's job, because the inputs are all host-side: the persona's configured traits (after any
+per-turn modulation), the contact's emotional state, and the turn's own outcome.
+
+```python
+from cogno_vox import DeliveryProfile, sanitize_delivery
+
+profile, dropped = sanitize_delivery({"style": style, "pace": pace, "energy": energy})
+if dropped:
+    log_once(f"delivery axes ignored: {dropped}")      # once per CONFIG, not per turn
+result = await synthesizer.synthesize(reply, emotion=cue, delivery=profile or None)
+```
+
+Two rules worth carrying across the boundary:
+
+* **the same source for text and voice.** If the host already suppressed a trait for this turn
+  (humour on a somber message, detail on an escalation), the delivery profile must come from the
+  *modulated* traits, not the declared ones — otherwise the reply reads sober and sounds cheerful.
+* **the existing cue blocklist still governs.** PII, a frustrated contact, urgency, a handoff →
+  plain voice. A delivery profile is a preference; those are a policy, and the policy wins.
+
+An engine that cannot shape delivery ignores the profile. That is by design and never an error —
+do not treat an unshaped reply as a failure.
+
+You **do** have to declare which engines can be shaped, on the tier itself:
+
+```python
+TierConfig(provider="openai", model="gpt-4o-mini-tts", delivery_dialect="instructions")
+TierConfig(provider="elevenlabs", model="...",         delivery_dialect="voice_settings")
+TierConfig(provider="local",  model="kokoro")          # "" — cannot be shaped, and is not asked
+```
+
+It is not inferable from the adapter: `OpenAICompatSynthesizer` drives OpenAI, Kokoro, Dia and
+Orpheus over one HTTP shape and only the first honours `instructions`. Leaving it unset is the
+safe default — the tier simply speaks unshaped.

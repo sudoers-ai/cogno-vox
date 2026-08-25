@@ -36,8 +36,56 @@ class TierConfig:
     # text_prep._EMOTION_DIALECTS). "" → plain engine: an emotion hint is ignored for this
     # tier and any inline tag is stripped before it would be read out loud.
     emotion_dialect: str = ""
+    # TTS only: HOW this engine takes a delivery profile — "instructions" (a prose field, as
+    # `gpt-4o-mini-tts` does), "voice_settings" (numbers, as ElevenLabs does), or "" (it does
+    # not take one). Declared per TIER and NOT inferred from the adapter class, because the
+    # class cannot answer it: `OpenAICompatSynthesizer` drives OpenAI, Kokoro, Dia AND Orpheus
+    # over the same HTTP shape and only the first honours `instructions`. A review measured
+    # this exact hole — the profile was reaching two tag engines whose own docs ignore it.
+    delivery_dialect: str = ""
     timeout: float = 60.0
     extra: dict[str, object] = field(default_factory=dict)
+
+
+# ── Delivery profile (HOW the words are said, not WHICH words) ────────────
+#
+# Distinct from ``emotion``, and the distinction is the whole design: an emotion hint is a
+# discrete NON-VERBAL cue ("chuckle") rendered as an inline tag, present or absent. A delivery
+# profile shapes the WHOLE utterance — three independent axes, each a closed vocabulary — and
+# every engine renders it differently or not at all (see ``cogno_vox.delivery``).
+#
+# Kept as three flat axes rather than one "mood" label on purpose: the host derives them from
+# separate signals (style from the persona's modulated traits, pace from urgency, energy from
+# the turn's outcome), and collapsing them would force it to pick a winner where there is none.
+
+# How the voice relates to the listener.
+VALID_DELIVERY_STYLE = frozenset({"warm", "reserved", "empathetic"})
+# How fast the words come.
+VALID_DELIVERY_PACE = frozenset({"fast", "steady", "slow"})
+# How much lift the voice carries.
+VALID_DELIVERY_ENERGY = frozenset({"high", "normal", "low"})
+
+# The two ways an engine can be TOLD a delivery; "" means it cannot be told at all.
+DELIVERY_INSTRUCTIONS = "instructions"
+DELIVERY_VOICE_SETTINGS = "voice_settings"
+VALID_DELIVERY_DIALECTS = frozenset({DELIVERY_INSTRUCTIONS, DELIVERY_VOICE_SETTINGS})
+
+
+@dataclass(frozen=True)
+class DeliveryProfile:
+    """Engine-agnostic delivery shape. Every axis is optional; ``""`` means "engine default".
+
+    Falsy when no axis is set, so a caller can write ``if delivery:`` and a profile that says
+    nothing costs nothing — the synthesizer then takes the byte-identical path it took before
+    this type existed.
+    """
+
+    style: str = ""
+    pace: str = ""
+    energy: str = ""
+
+    def __bool__(self) -> bool:
+        return bool(self.style or self.pace or self.energy)
 
 
 @dataclass(frozen=True)

@@ -9,9 +9,16 @@ fallback chains.
 """
 
 from cogno_vox.chunker import split_text_for_tts
+from cogno_vox.delivery import (
+    as_instructions,
+    as_voice_settings,
+    sanitize_delivery,
+    shapes_delivery,
+)
 from cogno_vox.factory import create_synthesizer, create_transcriber
 from cogno_vox.text_prep import apply_emotion, clean_text_for_tts, strip_emotion_tags
 from cogno_vox.ports import (
+    DeliveryAwareBackend,
     SynthesisError,
     SynthesizerBackend,
     TranscriberBackend,
@@ -33,6 +40,13 @@ from cogno_vox.transcriber import (
 )
 from cogno_vox.types import (
     SUPPORTED_INPUT_FORMATS,
+    VALID_DELIVERY_ENERGY,
+    VALID_DELIVERY_PACE,
+    VALID_DELIVERY_STYLE,
+    VALID_DELIVERY_DIALECTS,
+    DELIVERY_INSTRUCTIONS,
+    DELIVERY_VOICE_SETTINGS,
+    DeliveryProfile,
     SynthesisResult,
     TierConfig,
     TranscriptionResult,
@@ -44,11 +58,16 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     # ports + errors
-    "TranscriberBackend", "SynthesizerBackend",
+    "TranscriberBackend", "SynthesizerBackend", "DeliveryAwareBackend",
     "VoxError", "TranscriptionError", "SynthesisError",
     # types
     "VoxConfig", "TierConfig", "TranscriptionResult", "SynthesisResult",
     "SUPPORTED_INPUT_FORMATS",
+    # delivery profile (HOW the words are said)
+    "DeliveryProfile", "VALID_DELIVERY_STYLE", "VALID_DELIVERY_PACE",
+    "VALID_DELIVERY_ENERGY", "VALID_DELIVERY_DIALECTS", "DELIVERY_INSTRUCTIONS",
+    "DELIVERY_VOICE_SETTINGS", "sanitize_delivery", "shapes_delivery",
+    "as_instructions", "as_voice_settings",
     # chains
     "FallbackTranscriber", "FallbackSynthesizer",
     # transcriber backends
