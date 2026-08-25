@@ -22,6 +22,7 @@ import re
 import pytest
 
 from cogno_vox import (
+    DeliveryProfile,
     TierConfig,
     VoxConfig,
     create_synthesizer,
@@ -106,3 +107,40 @@ async def test_round_trip_segmented():
         heard_all |= _words(heard.text)
 
     assert {"first", "second", "third", "sentence"} <= heard_all
+
+
+# ── delivery profile, against a REAL engine ───────────────────────────────
+#
+# The unit suite proves the contract against stubs. What it cannot prove is the claim the whole
+# design rests on: that sending `instructions` to a server that never heard of the field is
+# harmless. Kokoro is exactly that server — OpenAI-compatible in shape, without the shaping
+# extension — so this is the live check that fail-open is real and not an assumption about how
+# strangers parse JSON.
+
+@needs_kokoro
+async def test_a_delivery_profile_does_not_break_an_engine_that_ignores_it():
+    """The fail-open claim, live. A 400 here (strict schema on an unknown key) would mean the
+    profile has to be opt-in per engine rather than sent freely — the design decision this
+    test exists to keep honest."""
+    shaped = await _synthesizer("wav").synthesize(
+        "Bom dia, tudo bem?", delivery=DeliveryProfile(style="warm", pace="slow", energy="low"))
+    assert shaped.audio and len(shaped.audio) > 1000
+    assert shaped.tier.startswith("local:")
+
+
+@needs_both
+async def test_shaping_does_not_cost_the_WORDS():
+    """A profile changes HOW, never WHAT. If an engine honours it by whispering or rushing, the
+    listener pays — and the round trip is the cheapest place that shows up."""
+    phrase = "confirme a consulta de quinta-feira às quinze horas"
+    synthesizer, transcriber = _synthesizer("wav"), _transcriber()
+
+    plain = await synthesizer.synthesize(phrase)
+    shaped = await synthesizer.synthesize(
+        phrase, delivery=DeliveryProfile(style="warm", pace="slow"))
+
+    heard_plain = await transcriber.transcribe(plain.audio, filename="plain.wav")
+    heard_shaped = await transcriber.transcribe(shaped.audio, filename="shaped.wav")
+    for heard in (heard_plain, heard_shaped):
+        assert re.search(r"quinta", heard.text, re.I), heard.text
+        assert re.search(r"quinze|15", heard.text, re.I), heard.text

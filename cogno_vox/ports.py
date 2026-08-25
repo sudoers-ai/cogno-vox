@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from cogno_vox.types import DeliveryProfile
+
 
 class VoxError(Exception):
     """Base error for the voice I/O edge."""
@@ -44,4 +46,21 @@ class SynthesizerBackend(Protocol):
 
     async def synthesize(self, text: str) -> bytes:
         """Return encoded audio bytes, or ``b""`` on failure (chain fails over)."""
+        ...
+
+
+@runtime_checkable
+class DeliveryAwareBackend(Protocol):
+    """OPTIONAL: a backend that can also be told HOW to say the words.
+
+    Deliberately a second protocol rather than a widened ``SynthesizerBackend``, for the same
+    reason ``ToolCallingBackend`` is separate from ``LLMBackend`` in the sibling libs: most
+    engines cannot shape delivery at all, and a base protocol every implementation must satisfy
+    would force each of them to carry a method that does nothing. A tier is probed with
+    ``isinstance`` and falls back to plain ``synthesize`` — so a chain can mix a shaping engine
+    with a plain one and a failover never turns "unshaped" into "failed".
+    """
+
+    async def synthesize_shaped(self, text: str, delivery: "DeliveryProfile") -> bytes:
+        """Same contract as ``synthesize``: audio bytes, or ``b""`` on failure."""
         ...

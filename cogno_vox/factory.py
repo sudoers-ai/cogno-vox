@@ -99,6 +99,9 @@ def _build_synthesizer(cfg: TierConfig, default_fmt: str) -> SynthesizerBackend:
     # The tier's expressive-tag dialect rides on the backend instance so the fallback
     # chain can decorate per tier (a failover to a plain engine must not carry tags).
     setattr(backend, "emotion_dialect", cfg.emotion_dialect)
+    # Same reason, same shape: the ADAPTER can carry a delivery, the ENGINE decides whether it
+    # means anything. Only a tier that declares a dialect is ever shaped.
+    setattr(backend, "delivery_dialect", cfg.delivery_dialect)
     return backend
 
 
