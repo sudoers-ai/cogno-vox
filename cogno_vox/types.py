@@ -15,6 +15,11 @@ SUPPORTED_INPUT_FORMATS = frozenset(
     {"ogg", "mp3", "wav", "m4a", "webm", "flac", "opus"}
 )
 
+# Image and video formats accepted for vision analysis.
+SUPPORTED_VISION_FORMATS = frozenset(
+    {"jpg", "jpeg", "png", "webp", "gif", "mp4", "webm", "ogg", "mov"}
+)
+
 
 @dataclass(frozen=True)
 class TierConfig:
@@ -97,6 +102,7 @@ class VoxConfig:
 
     transcribe_tiers: tuple[TierConfig, ...] = ()
     synthesize_tiers: tuple[TierConfig, ...] = ()
+    vision_tiers: tuple[TierConfig, ...] = ()
     # Default container for synthesized audio (Opus is mandatory for Telegram
     # native voice notes; the host overrides per channel).
     default_tts_format: str = "opus"
@@ -130,3 +136,16 @@ class SynthesisResult:
     def __post_init__(self) -> None:
         if not self.nbytes:
             object.__setattr__(self, "nbytes", len(self.audio))
+
+
+@dataclass(frozen=True)
+class VisionAnalysisResult:
+    """Outcome of a successful vision analysis call."""
+
+    summary: str
+    category: str = "GENERAL_IMAGE"
+    extracted_data: dict[str, object] = field(default_factory=dict)
+    confidence: float = 1.0
+    tier: str = ""        # "<provider>:<model>" that performed analysis
+    elapsed_ms: float = 0.0
+
