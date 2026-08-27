@@ -22,6 +22,26 @@ except ImportError:  # pragma: no cover
     _HAS_CV2 = False
 
 
+# The dependency's absence has to SAY ITS NAME. `extract_keyframes` returns `[]` when the
+# library is missing, and `[]` is also what a video with no scene changes returns — so without
+# this line a deployment that forgot `cogno-vox[vision]` processes video, records nothing, and
+# answers as if the video had nothing in it. Degrading quietly is not graceful; it is mute.
+#
+# Logged ONCE, on the first call that needed it: a warning per frame extraction would train a
+# reader to skip the line, and this one has to be readable the day somebody asks why the agent
+# never sees anything in a video.
+_WARNED_MISSING = False
+
+
+def _warn_missing_once() -> None:
+    global _WARNED_MISSING
+    if not _WARNED_MISSING:
+        _WARNED_MISSING = True
+        logger.warning(
+            "event=video_sampler_unavailable missing=opencv-python-headless,numpy — keyframe "
+            "extraction is OFF and every video will look empty. Install `cogno-vox[vision]`.")
+
+
 
 def extract_keyframes(
     video_bytes: bytes,
@@ -41,17 +61,24 @@ def extract_keyframes(
     :param output_format: Image format for extracted frames (".jpg", ".png").
     :return: List of encoded image bytes for each extracted keyframe.
     """
-    if not _HAS_CV2 or not video_bytes:
+    if not _HAS_CV2:
+        _warn_missing_once()
         return []
-
-    # Write bytes to temporary file for cv2.VideoCapture
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-        tmp.write(video_bytes)
-        tmp_path = Path(tmp.name)
+    if not video_bytes:
+        return []
 
     keyframes: list[bytes] = []
     cap = None
+    tmp_path: Optional[Path] = None
     try:
+        # INSIDE the try, deliberately: these are a contact's bytes on the filesystem. Written
+        # above it, a failure mid-write (a full disk) left the partial file behind with nothing
+        # to clean it up — the `finally` had not been entered yet. `cv2.VideoCapture` needs a
+        # path, so the file has to exist; what it must not do is outlive the call.
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp.write(video_bytes)
+            tmp_path = Path(tmp.name)
+
         cap = cv2.VideoCapture(str(tmp_path))
         if not cap.isOpened():
             logger.warning("video_sampler: cv2 failed to open video stream")
@@ -101,7 +128,7 @@ def extract_keyframes(
     finally:
         if cap is not None:
             cap.release()
-        if tmp_path.exists():
+        if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
 
     return keyframes

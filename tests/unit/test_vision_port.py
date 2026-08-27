@@ -1,7 +1,6 @@
 """Unit tests for cogno_vox vision port types and protocols."""
 
 from dataclasses import is_dataclass
-import pytest
 
 from cogno_vox import (
     SUPPORTED_VISION_FORMATS,

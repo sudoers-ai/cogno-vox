@@ -6,7 +6,6 @@ from cogno_vox import (
     FallbackVisionAnalyzer,
     OpenAICompatVisionAnalyzer,
     TierConfig,
-    VisionAnalysisResult,
     VisionError,
     VoxConfig,
     create_vision_analyzer,

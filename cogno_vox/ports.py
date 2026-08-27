@@ -68,7 +68,17 @@ class VisionAnalyzerBackend(Protocol):
         *,
         prompt: str = ""
     ) -> Optional[VisionAnalysisResult]:
-        """Return VisionAnalysisResult, or ``None`` on failure (chain fails over)."""
+        """Return VisionAnalysisResult, or ``None`` on failure (chain fails over).
+
+        **`None`, and not an empty result — the divergence from the two siblings is deliberate.**
+        `TranscriberBackend` returns `""` and `SynthesizerBackend` returns `b""` because text and
+        bytes have a natural empty value. A structured result has none: an empty
+        `VisionAnalysisResult` would be a made-up object a caller could mistake for an answer.
+        The chain reads `res is not None and res.summary`, so both halves are checked.
+
+        Written down because "harmonising" this to a falsy sentinel looks like tidying and would
+        make a failed tier indistinguishable from a tier that answered nothing.
+        """
         ...
 
 

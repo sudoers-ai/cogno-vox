@@ -27,6 +27,14 @@ jobs:
         run: ruff check cogno_vox cognobench tests examples
       - name: Type-check (mypy)
         run: mypy cogno_vox
+      - name: Install the vision extra (AFTER mypy, on purpose)
+        # Not in `[dev]`: numpy ships stubs written in 3.12 syntax, which mypy REJECTS under
+        # `python_version = "3.10"` — and it fails before reaching our code ("errors prevented
+        # further checking"). Installed here so the type-check never meets them and the test
+        # suite still exercises `video_sampler` for real; without it the module sits at 25%
+        # coverage and the tests behave differently here than on a machine that happens to
+        # have opencv — which is the very defect this PR fixes.
+        run: pip install -e ".[vision]"
       - name: Unit tests
         # Integration tests against a real local Whisper/Kokoro server auto-skip
         # without VOX_*_BASE_URL env vars; the unit suite mocks all HTTP.
