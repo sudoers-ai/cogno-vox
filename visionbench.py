@@ -47,7 +47,10 @@ class StubVisionBackend:
 
 async def run_benchmark(stub: bool = False, base_url: str = "http://localhost:11434/v1", model: str = "qwen2.5-vl-7b") -> int:
     print(f"=== Running VisionBench (stub={stub}, model={model}) ===")
-    dummy_png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+    dummy_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        b"\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
 
     start_t = time.perf_counter()
     if stub:
