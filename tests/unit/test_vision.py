@@ -1,7 +1,8 @@
 """Unit tests for cogno_vox vision analyzers and fallback chains."""
 
-import pytest
 import httpx
+import pytest
+
 from cogno_vox import (
     FallbackVisionAnalyzer,
     OpenAICompatVisionAnalyzer,
@@ -10,6 +11,7 @@ from cogno_vox import (
     VoxConfig,
     create_vision_analyzer,
 )
+from cogno_vox.vision import _detect_mime_type
 
 
 @pytest.mark.asyncio
@@ -131,9 +133,6 @@ def test_create_vision_analyzer_factory():
     assert len(chain.backends) == 2
     assert chain.backends[0].name == "local:qwen2.5-vl-7b"
     assert chain.backends[1].name == "openai:gpt-4o-mini-vision"
-
-
-from cogno_vox.vision import _detect_mime_type
 
 
 @pytest.mark.parametrize(

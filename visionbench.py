@@ -14,7 +14,6 @@ import sys
 import time
 
 from cogno_vox import (
-    OpenAICompatVisionAnalyzer,
     TierConfig,
     VisionAnalysisResult,
     create_vision_analyzer,
