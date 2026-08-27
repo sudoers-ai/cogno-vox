@@ -188,6 +188,83 @@ def test_extract_keyframes_video_loop_and_scene_change_mocked(monkeypatch):
     assert keyframes[1] == b"encoded_frame_white"
 
 
+def test_extract_keyframes_respeita_limite_max_frames(monkeypatch):
+    """Garante que o limite max_frames é estritamente respeitado mesmo quando há mais mudanças de cena.
+    
+    Testado por sabotagem: remover `and len(keyframes) < max_frames` do laço faz este teste falhar.
+    """
+    from cogno_vox import video_sampler as vs
+
+    class MockCap:
+        def __init__(self, frames):
+            self.frames = list(frames)
+            self.idx = 0
+
+        def isOpened(self):
+            return self.idx < len(self.frames)
+
+        def get(self, prop):
+            return len(self.frames)
+
+        def read(self):
+            if self.idx < len(self.frames):
+                frame = self.frames[self.idx]
+                self.idx += 1
+                return True, frame
+            return False, None
+
+        def release(self):
+            pass
+
+    class MockHist:
+        def __init__(self, val):
+            self.val = val
+
+    class MockBuffer:
+        def __init__(self, data):
+            self.data = data
+
+        def tobytes(self):
+            return self.data
+
+    class MockCv2Cap:
+        CAP_PROP_FRAME_COUNT = 5
+        COLOR_BGR2HSV = 1
+        NORM_MINMAX = 32
+        HISTCMP_CORREL = 0
+
+        def VideoCapture(self, path):
+            # 5 fotogramas completamente diferentes -> 5 mudanças de cena potenciais
+            return MockCap(["f1", "f2", "f3", "f4", "f5"])
+
+        def cvtColor(self, frame, code):
+            return frame
+
+        def calcHist(self, images, channels, mask, histSize, ranges):
+            # Cada fotograma gera um histograma com valor distinto (1.0, 2.0, 3.0...)
+            idx = int(images[0][1:])
+            return MockHist(float(idx))
+
+        def normalize(self, src, dst, alpha, beta, norm_type):
+            pass
+
+        def compareHist(self, h1, h2, method):
+            # Sempre diferente se os valores forem distintos
+            return 1.0 if h1.val == h2.val else 0.0
+
+        def imencode(self, ext, frame):
+            return True, MockBuffer(f"encoded_{frame}".encode("utf-8"))
+
+    monkeypatch.setattr(vs, "cv2", MockCv2Cap(), raising=False)
+    monkeypatch.setattr(vs, "np", type("np", (), {"ndarray": MockHist}), raising=False)
+    monkeypatch.setattr(vs, "_HAS_CV2", True)
+
+    # O vídeo tem 5 mudanças de cena, mas pedimos max_frames=2
+    keyframes = vs.extract_keyframes(b"video_bytes_5_scenes", max_frames=2, scene_threshold=0.3)
+    assert len(keyframes) == 2, f"deve cortar exatamente em 2 fotogramas, devolveu {len(keyframes)}"
+
+
+
 def test_extract_keyframes_unopenable_video_returns_empty(monkeypatch):
     """Cobre a linha 85: quando cv2.VideoCapture falha em abrir o arquivo."""
     from cogno_vox import video_sampler as vs
