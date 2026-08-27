@@ -18,8 +18,9 @@ try:
     import cv2
     import numpy as np
     _HAS_CV2 = True
-except ImportError:  # pragma: no cover
+except (ImportError, AttributeError):  # pragma: no cover
     _HAS_CV2 = False
+
 
 
 # The dependency's absence has to SAY ITS NAME. `extract_keyframes` returns `[]` when the

@@ -110,3 +110,200 @@ def test_o_ficheiro_TEMPORARIO_nao_sobrevive_a_chamada(monkeypatch):
     for nome in criados:
         assert not Path(nome).exists(), (
             f"{nome} sobreviveu à chamada — são bytes de vídeo de um contacto deixados no disco")
+
+
+def test_extract_keyframes_video_loop_and_scene_change_mocked(monkeypatch):
+    """Testa o laço de amostragem de vídeo com cv2 mockado, garantindo cobertura 100% determinística.
+    
+    Verifica:
+    1. Abertura do vídeo e contagem de fotogramas;
+    2. Comparação de histograma e detecção de mudança de cena;
+    3. Retorno de keyframes codificados em bytes.
+    """
+    from cogno_vox import video_sampler as vs
+
+    class MockCap:
+        def __init__(self, frames):
+            self.frames = list(frames)
+            self.idx = 0
+
+        def isOpened(self):
+            return self.idx < len(self.frames)
+
+        def get(self, prop):
+            return len(self.frames)
+
+        def read(self):
+            if self.idx < len(self.frames):
+                frame = self.frames[self.idx]
+                self.idx += 1
+                return True, frame
+            return False, None
+
+        def release(self):
+            pass
+
+    class MockHist:
+        def __init__(self, val):
+            self.val = val
+
+    class MockBuffer:
+        def __init__(self, data):
+            self.data = data
+
+        def tobytes(self):
+            return self.data
+
+    class MockCv2:
+        CAP_PROP_FRAME_COUNT = 4
+        COLOR_BGR2HSV = 1
+        NORM_MINMAX = 32
+        HISTCMP_CORREL = 0
+
+        def VideoCapture(self, path):
+            return MockCap(["frame_black", "frame_black", "frame_white", "frame_white"])
+
+        def cvtColor(self, frame, code):
+            return frame
+
+        def calcHist(self, images, channels, mask, histSize, ranges):
+            return MockHist(1.0 if images[0] == "frame_black" else 0.0)
+
+        def normalize(self, src, dst, alpha, beta, norm_type):
+            pass
+
+        def compareHist(self, h1, h2, method):
+            return 1.0 if h1.val == h2.val else 0.0
+
+        def imencode(self, ext, frame):
+            return True, MockBuffer(f"encoded_{frame}".encode("utf-8"))
+
+    monkeypatch.setattr(vs, "cv2", MockCv2(), raising=False)
+    monkeypatch.setattr(vs, "np", type("np", (), {"ndarray": MockHist}), raising=False)
+    monkeypatch.setattr(vs, "_HAS_CV2", True)
+
+    keyframes = vs.extract_keyframes(b"fake_video_bytes", max_frames=8, scene_threshold=0.3)
+    assert len(keyframes) == 2
+    assert keyframes[0] == b"encoded_frame_black"
+    assert keyframes[1] == b"encoded_frame_white"
+
+
+def test_extract_keyframes_unopenable_video_returns_empty(monkeypatch):
+    """Cobre a linha 85: quando cv2.VideoCapture falha em abrir o arquivo."""
+    from cogno_vox import video_sampler as vs
+
+    class MockCapUnopenable:
+        def isOpened(self):
+            return False
+
+        def release(self):
+            pass
+
+    class MockCv2Unopenable:
+        def VideoCapture(self, path):
+            return MockCapUnopenable()
+
+    monkeypatch.setattr(vs, "cv2", MockCv2Unopenable(), raising=False)
+    monkeypatch.setattr(vs, "_HAS_CV2", True)
+
+    assert vs.extract_keyframes(b"corrupt_video_bytes") == []
+
+
+def test_extract_keyframes_fallback_total_frames_and_loop_break(monkeypatch):
+    """Cobre linha 91 (total_frames <= 0) e linha 100 (if not ret: break)."""
+    from cogno_vox import video_sampler as vs
+
+    class MockCapZeroFrames:
+        def __init__(self):
+            self.read_count = 0
+
+        def isOpened(self):
+            return self.read_count < 2
+
+        def get(self, prop):
+            return 0  # total_frames <= 0 -> fallback para 100
+
+        def read(self):
+            self.read_count += 1
+            if self.read_count == 1:
+                return True, "frame_1"
+            return False, None  # ret=False -> break
+
+        def release(self):
+            pass
+
+    class MockBuffer:
+        def tobytes(self):
+            return b"frame_1_bytes"
+
+    class MockCv2Zero:
+        CAP_PROP_FRAME_COUNT = 0
+        COLOR_BGR2HSV = 1
+        NORM_MINMAX = 32
+        HISTCMP_CORREL = 0
+
+        def VideoCapture(self, path):
+            return MockCapZeroFrames()
+
+        def cvtColor(self, frame, code):
+            return frame
+
+        def calcHist(self, images, channels, mask, histSize, ranges):
+            return "hist_1"
+
+        def normalize(self, src, dst, alpha, beta, norm_type):
+            pass
+
+        def imencode(self, ext, frame):
+            return True, MockBuffer()
+
+    monkeypatch.setattr(vs, "cv2", MockCv2Zero(), raising=False)
+    monkeypatch.setattr(vs, "np", type("np", (), {"ndarray": str}), raising=False)
+    monkeypatch.setattr(vs, "_HAS_CV2", True)
+
+    keyframes = vs.extract_keyframes(b"valid_bytes", max_frames=8)
+    assert len(keyframes) == 1
+    assert keyframes[0] == b"frame_1_bytes"
+
+
+def test_extract_keyframes_exception_during_processing_returns_empty(monkeypatch, caplog):
+    """Cobre as linhas 126-128: quando ocorre uma exceção durante o processamento do vídeo."""
+    import logging
+    from cogno_vox import video_sampler as vs
+
+    class MockCapException:
+        def isOpened(self):
+            return True
+
+        def get(self, prop):
+            return 10
+
+        def read(self):
+            return True, "frame_err"
+
+        def release(self):
+            pass
+
+    class MockCv2Exception:
+        CAP_PROP_FRAME_COUNT = 0
+        COLOR_BGR2HSV = 1
+
+        def VideoCapture(self, path):
+            return MockCapException()
+
+        def cvtColor(self, frame, code):
+            raise RuntimeError("Erro simulado de processamento de imagem")
+
+    monkeypatch.setattr(vs, "cv2", MockCv2Exception(), raising=False)
+    monkeypatch.setattr(vs, "_HAS_CV2", True)
+
+    with caplog.at_level(logging.WARNING):
+        assert vs.extract_keyframes(b"bytes_que_falham") == []
+
+    logs = "\n".join(r.getMessage() for r in caplog.records)
+    assert "video_sampler: keyframe extraction failed" in logs
+    assert "Erro simulado de processamento de imagem" in logs
+
+
+
+
