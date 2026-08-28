@@ -12,7 +12,7 @@ import logging
 from typing import cast
 
 from cogno_vox.audio_utils import ffmpeg_available
-from cogno_vox.ports import SynthesizerBackend, TranscriberBackend
+from cogno_vox.ports import SynthesizerBackend, TranscriberBackend, VisionAnalyzerBackend
 from cogno_vox.synthesizer import (
     ElevenLabsSynthesizer,
     FallbackSynthesizer,
@@ -27,6 +27,8 @@ from cogno_vox.transcriber import (
     OpenAICompatTranscriber,
 )
 from cogno_vox.types import TierConfig, VoxConfig
+from cogno_vox.vision import FallbackVisionAnalyzer, OpenAICompatVisionAnalyzer
+
 
 log = logging.getLogger(__name__)
 
@@ -118,3 +120,15 @@ def create_synthesizer(config: VoxConfig) -> FallbackSynthesizer:
         [_build_synthesizer(c, config.default_tts_format)
          for c in config.synthesize_tiers]
     )
+
+
+def _build_vision_analyzer(cfg: TierConfig) -> VisionAnalyzerBackend:
+    return OpenAICompatVisionAnalyzer(cfg)
+
+
+def create_vision_analyzer(config: VoxConfig) -> FallbackVisionAnalyzer:
+    """Assemble the Vision fallback chain from ``config.vision_tiers``."""
+    return FallbackVisionAnalyzer(
+        [_build_vision_analyzer(c) for c in config.vision_tiers]
+    )
+

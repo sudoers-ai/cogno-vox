@@ -8,9 +8,10 @@ cogno-engram. A backend is anything that has ``name`` and the one async method.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
-from cogno_vox.types import DeliveryProfile
+from cogno_vox.types import DeliveryProfile, VisionAnalysisResult
+
 
 
 class VoxError(Exception):
@@ -23,6 +24,10 @@ class TranscriptionError(VoxError):
 
 class SynthesisError(VoxError):
     """Raised when synthesis fails across every configured tier."""
+
+
+class VisionError(VoxError):
+    """Raised when vision analysis fails across every configured tier."""
 
 
 @runtime_checkable
@@ -50,6 +55,34 @@ class SynthesizerBackend(Protocol):
 
 
 @runtime_checkable
+class VisionAnalyzerBackend(Protocol):
+    """A single vision/multimodal analysis backend (one tier of a fallback chain)."""
+
+    @property
+    def name(self) -> str: ...
+
+    async def analyze(
+        self,
+        media_bytes: bytes,
+        filename_or_mime: str = "image.png",
+        *,
+        prompt: str = ""
+    ) -> Optional[VisionAnalysisResult]:
+        """Return VisionAnalysisResult, or ``None`` on failure (chain fails over).
+
+        **`None`, and not an empty result — the divergence from the two siblings is deliberate.**
+        `TranscriberBackend` returns `""` and `SynthesizerBackend` returns `b""` because text and
+        bytes have a natural empty value. A structured result has none: an empty
+        `VisionAnalysisResult` would be a made-up object a caller could mistake for an answer.
+        The chain reads `res is not None and res.summary`, so both halves are checked.
+
+        Written down because "harmonising" this to a falsy sentinel looks like tidying and would
+        make a failed tier indistinguishable from a tier that answered nothing.
+        """
+        ...
+
+
+@runtime_checkable
 class DeliveryAwareBackend(Protocol):
     """OPTIONAL: a backend that can also be told HOW to say the words.
 
@@ -64,3 +97,4 @@ class DeliveryAwareBackend(Protocol):
     async def synthesize_shaped(self, text: str, delivery: "DeliveryProfile") -> bytes:
         """Same contract as ``synthesize``: audio bytes, or ``b""`` on failure."""
         ...
+

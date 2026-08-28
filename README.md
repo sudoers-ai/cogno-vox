@@ -13,7 +13,7 @@ It is the most decoupled of the libraries: the core imports **neither** `cogno-a
 
 > Status: **alpha** — core (ports + OpenAI-compatible backends + fallback chains) and the unit suite are in place.
 
-## Two capability-scoped ports
+## Three capability-scoped ports
 
 Like `cogno-anima`'s `LLMBackend`/`Embedder` and `cogno-engram`'s three ports, each direction is a structurally-typed `Protocol` with its own fallback chain (try tier 1→N, first non-empty wins, all-fail → raises):
 
@@ -21,6 +21,7 @@ Like `cogno-anima`'s `LLMBackend`/`Embedder` and `cogno-engram`'s three ports, e
 | --- | --- | --- |
 | `TranscriberBackend` (STT) | `transcribe(audio, filename) -> str` | OpenAI-compatible (faster-whisper-server / Groq / OpenAI), Gemini multimodal, Bedrock/Voxtral |
 | `SynthesizerBackend` (TTS) | `synthesize(text) -> bytes` | OpenAI-compatible (Kokoro / OpenAI), Grok, ElevenLabs, Gemini |
+| `VisionAnalyzerPort` (Vision) | `analyze(media_bytes, mime_type) -> VisionAnalysisResult` | Qwen2.5-VL (local/vLLM), Moondream2, GOT-OCR2.0, Gemini / GPT-4o Vision |
 | `DeliveryAwareBackend` (TTS, **optional**) | `synthesize_shaped(text, delivery) -> bytes` | OpenAI-compatible (`instructions`), ElevenLabs (`voice_settings`) |
 
 `OpenAICompat*` covers any `/v1/audio/transcriptions` or `/v1/audio/speech` server — local or cloud differ only by `base_url`/`api_key`, no SDK needed (just `httpx`).

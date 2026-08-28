@@ -49,6 +49,12 @@ bedrock = ["boto3>=1.34"]
 # The Dia expressive-TTS wrapper server (python -m cogno_vox.dia_server). The dia lib +
 # torch are installed separately (community checkpoints need the pre-0626 dia commit).
 server = ["fastapi>=0.110", "uvicorn>=0.29"]
+# Keyframe extraction from video (`cogno_vox.video_sampler`). NOT optional in the sense the
+# name suggests: without it `extract_keyframes` returns `[]`, and an empty list is exactly what
+# a video with no scene changes returns — so a deployment missing this dependency processes
+# video, records nothing, and answers as if the video had nothing in it. Declared here because
+# a firm dependency that lives only in an `except ImportError` is invisible to whoever installs.
+vision = ["opencv-python-headless>=4.9", "numpy>=1.26"]
 
 [build-system]
 requires = ["setuptools>=77.0.3", "wheel"]
