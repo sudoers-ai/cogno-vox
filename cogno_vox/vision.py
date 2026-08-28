@@ -65,31 +65,6 @@ def _detect_mime_type(filename_or_mime: str, media_bytes: bytes) -> str:
     return "image/png"
 
 
-class OpenAICompatVisionAnalyzer:
-    """Vision backend driving OpenAI-compatible VLLM endpoints (Ollama, Qwen2.5-VL, vLLM)."""
-
-    def __init__(self, tier: TierConfig, client: Optional[httpx.AsyncClient] = None) -> None:
-        self._tier = tier
-        self._base_url = (tier.base_url or "http://localhost:11434/v1").rstrip("/")
-        self._model = tier.model
-        self._api_key = tier.api_key
-        self._timeout = tier.timeout
-        self._client = client
-
-    @property
-    def name(self) -> str:
-        return f"{self._tier.provider}:{self._model}"
-
-    async def analyze(
-        self,
-        media_bytes: bytes,
-        filename_or_mime: str = "image.png",
-        *,
-        prompt: str = ""
-    ) -> Optional[VisionAnalysisResult]:
-        if not media_bytes:
-            return None
-
 def _prepare_vision_media(
     media_bytes: bytes, filename_or_mime: str
 ) -> tuple[list[tuple[str, str]], int, int]:
