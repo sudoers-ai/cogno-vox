@@ -122,8 +122,46 @@ def create_synthesizer(config: VoxConfig) -> FallbackSynthesizer:
     )
 
 
+import os
+
+_VISION_PROVIDERS: dict[str, tuple[str, str]] = {
+    "openai":     ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+    "anthropic":  ("https://api.anthropic.com", "ANTHROPIC_API_KEY"),
+    "grok":       ("https://api.x.ai/v1", "XAI_API_KEY"),
+    "xai":        ("https://api.x.ai/v1", "XAI_API_KEY"),
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    "together":   ("https://api.together.xyz/v1", "TOGETHER_API_KEY"),
+    "groq":       ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+    "deepseek":   ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
+}
+
+
 def _build_vision_analyzer(cfg: TierConfig) -> VisionAnalyzerBackend:
-    return OpenAICompatVisionAnalyzer(cfg)
+    p = (cfg.provider or "").lower()
+    base_url = cfg.base_url
+    api_key = cfg.api_key
+
+    if p in _VISION_PROVIDERS:
+        default_url, env_var = _VISION_PROVIDERS[p]
+        if not base_url:
+            base_url = default_url
+        if not api_key:
+            api_key = os.environ.get(env_var, "")
+
+    resolved_cfg = TierConfig(
+        provider=cfg.provider,
+        model=cfg.model,
+        base_url=base_url,
+        api_key=api_key,
+        timeout=cfg.timeout,
+        extra=cfg.extra,
+    )
+
+    if p == "anthropic":
+        from cogno_vox.vision import AnthropicVisionAnalyzer
+        return AnthropicVisionAnalyzer(resolved_cfg)
+
+    return OpenAICompatVisionAnalyzer(resolved_cfg)
 
 
 def create_vision_analyzer(config: VoxConfig) -> FallbackVisionAnalyzer:
@@ -131,4 +169,5 @@ def create_vision_analyzer(config: VoxConfig) -> FallbackVisionAnalyzer:
     return FallbackVisionAnalyzer(
         [_build_vision_analyzer(c) for c in config.vision_tiers]
     )
+
 

@@ -90,59 +90,142 @@ class OpenAICompatVisionAnalyzer:
         if not media_bytes:
             return None
 
-        mime = _detect_mime_type(filename_or_mime, media_bytes)
-        images_b64: list[str] = []
-        pdf_pages_read = 0
-        pdf_total_pages = 0
+def _prepare_vision_media(
+    media_bytes: bytes, filename_or_mime: str
+) -> tuple[list[tuple[str, str]], int, int]:
+    """Prepare media bytes as a list of (mime_type, base64_str) tuples, plus PDF page counts."""
+    mime = _detect_mime_type(filename_or_mime, media_bytes)
+    images_b64: list[tuple[str, str]] = []
+    pdf_pages_read = 0
+    pdf_total_pages = 0
 
-        if mime == "application/pdf":
-            try:
-                import io
-                import pypdfium2 as pdfium
-            except ImportError as err:
-                raise VisionError(
-                    "PDF vision conversion requires 'pypdfium2'. Please install with: pip install cogno-vox[vision] or pip install pypdfium2"
-                ) from err
+    if mime == "application/pdf":
+        try:
+            import io
+            import pypdfium2 as pdfium
+        except ImportError as err:
+            raise VisionError(
+                "PDF vision conversion requires 'pypdfium2'. Please install with: pip install cogno-vox[vision] or pip install pypdfium2"
+            ) from err
 
-            try:
-                pdf = pdfium.PdfDocument(media_bytes)
-                pdf_total_pages = len(pdf)
-                max_pages = 5
-                pdf_pages_read = min(pdf_total_pages, max_pages)
+        try:
+            pdf = pdfium.PdfDocument(media_bytes)
+            pdf_total_pages = len(pdf)
+            max_pages = 5
+            pdf_pages_read = min(pdf_total_pages, max_pages)
 
-                for i in range(pdf_pages_read):
-                    image = pdf[i].render(scale=2).to_pil()
-                    buf = io.BytesIO()
-                    image.save(buf, format="JPEG")
-                    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-                    images_b64.append(f"data:image/jpeg;base64,{b64}")
-            except Exception as exc:
-                if isinstance(exc, VisionError):
-                    raise
-                raise VisionError(f"Failed to render PDF pages for vision analysis: {exc}") from exc
+            for i in range(pdf_pages_read):
+                image = pdf[i].render(scale=2).to_pil()
+                buf = io.BytesIO()
+                image.save(buf, format="JPEG")
+                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                images_b64.append(("image/jpeg", b64))
+        except Exception as exc:
+            if isinstance(exc, VisionError):
+                raise
+            raise VisionError(f"Failed to render PDF pages for vision analysis: {exc}") from exc
 
-        elif mime.startswith("video/"):
-            # Extract keyframes for video
-            keyframes = extract_keyframes(media_bytes, max_frames=8)
-            if not keyframes:
-                # If keyframe extraction returned empty, treat raw bytes as image fallback
-                b64 = base64.b64encode(media_bytes).decode("ascii")
-                images_b64.append(f"data:image/jpeg;base64,{b64}")
-            else:
-                for kf in keyframes:
-                    b64 = base64.b64encode(kf).decode("ascii")
-                    images_b64.append(f"data:image/jpeg;base64,{b64}")
-        else:
+    elif mime.startswith("video/"):
+        keyframes = extract_keyframes(media_bytes, max_frames=8)
+        if not keyframes:
             b64 = base64.b64encode(media_bytes).decode("ascii")
-            images_b64.append(f"data:{mime};base64,{b64}")
+            images_b64.append(("image/jpeg", b64))
+        else:
+            for kf in keyframes:
+                b64 = base64.b64encode(kf).decode("ascii")
+                images_b64.append(("image/jpeg", b64))
+    else:
+        b64 = base64.b64encode(media_bytes).decode("ascii")
+        images_b64.append((mime, b64))
+
+    return images_b64, pdf_pages_read, pdf_total_pages
+
+
+def _parse_vision_response(
+    tier_name: str,
+    raw_text: str,
+    elapsed_ms: float,
+    *,
+    tokens_in: int = 0,
+    tokens_out: int = 0,
+    pdf_pages_read: int = 0,
+    pdf_total_pages: int = 0,
+) -> VisionAnalysisResult:
+    """Attempt JSON extraction or fallback to plain summary."""
+    text = raw_text
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in text:
+        text = text.split("```", 1)[1].split("```", 1)[0].strip()
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            extracted = parsed.get("extracted_data")
+            extracted_data: dict[str, object] = extracted if isinstance(extracted, dict) else {}
+            return VisionAnalysisResult(
+                summary=str(parsed.get("summary") or raw_text),
+                category=str(parsed.get("category") or "GENERAL_IMAGE"),
+                extracted_data=extracted_data,
+                confidence=float(parsed.get("confidence") or 1.0),
+                tier=tier_name,
+                elapsed_ms=elapsed_ms,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                pdf_pages_read=pdf_pages_read,
+                pdf_total_pages=pdf_total_pages,
+            )
+    except Exception:
+        pass
+
+    return VisionAnalysisResult(
+        summary=raw_text,
+        category="GENERAL_IMAGE",
+        extracted_data={},
+        confidence=0.8,
+        tier=tier_name,
+        elapsed_ms=elapsed_ms,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        pdf_pages_read=pdf_pages_read,
+        pdf_total_pages=pdf_total_pages,
+    )
+
+
+class OpenAICompatVisionAnalyzer:
+    """Vision backend driving OpenAI-compatible VLLM endpoints (Ollama, Qwen2.5-VL, vLLM)."""
+
+    def __init__(self, tier: TierConfig, client: Optional[httpx.AsyncClient] = None) -> None:
+        self._tier = tier
+        self._base_url = (tier.base_url or "http://localhost:11434/v1").rstrip("/")
+        self._model = tier.model
+        self._api_key = tier.api_key
+        self._timeout = tier.timeout
+        self._client = client
+
+    @property
+    def name(self) -> str:
+        return f"{self._tier.provider}:{self._model}"
+
+    async def analyze(
+        self,
+        media_bytes: bytes,
+        filename_or_mime: str = "image.png",
+        *,
+        prompt: str = ""
+    ) -> Optional[VisionAnalysisResult]:
+        if not media_bytes:
+            return None
+
+        images_b64, pdf_pages_read, pdf_total_pages = _prepare_vision_media(media_bytes, filename_or_mime)
 
         content_payload: list[dict[str, object]] = [
             {"type": "text", "text": prompt or DEFAULT_VISION_PROMPT}
         ]
-        for img_url in images_b64:
+        for mime_type, raw_b64 in images_b64:
             content_payload.append({
                 "type": "image_url",
-                "image_url": {"url": img_url}
+                "image_url": {"url": f"data:{mime_type};base64,{raw_b64}"}
             })
 
         headers = {"Content-Type": "application/json"}
@@ -170,8 +253,8 @@ class OpenAICompatVisionAnalyzer:
 
             if resp.status_code != 200:
                 logger.warning(
-                    "vision %s HTTP %d: %s",
-                    self.name, resp.status_code, resp.text[:200]
+                    "vision %s HTTP %d",
+                    self.name, resp.status_code
                 )
                 return None
 
@@ -188,7 +271,8 @@ class OpenAICompatVisionAnalyzer:
             if not raw_text:
                 return None
 
-            return self._parse_response(
+            return _parse_vision_response(
+                self.name,
                 raw_text,
                 elapsed_ms,
                 tokens_in=tokens_in,
@@ -198,63 +282,117 @@ class OpenAICompatVisionAnalyzer:
             )
 
         except Exception as exc:
+            # SECURITY (Test 9): NEVER log self._api_key or full headers/payload!
             logger.warning("vision %s failed: %s", self.name, exc)
             return None
         finally:
             if close_client and client is not None:
                 await client.aclose()
 
-    def _parse_response(
+
+class AnthropicVisionAnalyzer:
+    """Vision backend driving Anthropic Messages API (Claude 3 / 3.5)."""
+
+    def __init__(self, tier: TierConfig, client: Optional[httpx.AsyncClient] = None) -> None:
+        self._tier = tier
+        self._base_url = (tier.base_url or "https://api.anthropic.com").rstrip("/")
+        self._model = tier.model
+        self._api_key = tier.api_key
+        self._timeout = tier.timeout
+        self._client = client
+
+    @property
+    def name(self) -> str:
+        return f"{self._tier.provider}:{self._model}"
+
+    async def analyze(
         self,
-        raw_text: str,
-        elapsed_ms: float,
+        media_bytes: bytes,
+        filename_or_mime: str = "image.png",
         *,
-        tokens_in: int = 0,
-        tokens_out: int = 0,
-        pdf_pages_read: int = 0,
-        pdf_total_pages: int = 0,
-    ) -> VisionAnalysisResult:
-        """Attempt JSON extraction or fallback to plain summary."""
-        # Clean markdown code blocks if present
-        text = raw_text
-        if "```json" in text:
-            text = text.split("```json", 1)[1].split("```", 1)[0].strip()
-        elif "```" in text:
-            text = text.split("```", 1)[1].split("```", 1)[0].strip()
+        prompt: str = ""
+    ) -> Optional[VisionAnalysisResult]:
+        if not media_bytes:
+            return None
+
+        images_b64, pdf_pages_read, pdf_total_pages = _prepare_vision_media(media_bytes, filename_or_mime)
+
+        content_payload: list[dict[str, object]] = [
+            {"type": "text", "text": prompt or DEFAULT_VISION_PROMPT}
+        ]
+        for mime_type, raw_b64 in images_b64:
+            content_payload.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime_type,
+                    "data": raw_b64,
+                }
+            })
+
+        headers = {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+        }
+        if self._api_key:
+            headers["x-api-key"] = self._api_key
+
+        payload = {
+            "model": self._model,
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": content_payload}],
+        }
+
+        url = f"{self._base_url}/v1/messages" if not self._base_url.endswith("/v1") else f"{self._base_url}/messages"
+        start_t = time.perf_counter()
+
+        close_client = False
+        client = self._client
+        if client is None:
+            client = httpx.AsyncClient(timeout=self._timeout)
+            close_client = True
 
         try:
-            parsed = json.loads(text)
-            if isinstance(parsed, dict):
-                extracted = parsed.get("extracted_data")
-                extracted_data: dict[str, object] = extracted if isinstance(extracted, dict) else {}
-                return VisionAnalysisResult(
-                    summary=str(parsed.get("summary") or raw_text),
-                    category=str(parsed.get("category") or "GENERAL_IMAGE"),
-                    extracted_data=extracted_data,
-                    confidence=float(parsed.get("confidence") or 1.0),
-                    tier=self.name,
-                    elapsed_ms=elapsed_ms,
-                    tokens_in=tokens_in,
-                    tokens_out=tokens_out,
-                    pdf_pages_read=pdf_pages_read,
-                    pdf_total_pages=pdf_total_pages,
+            resp = await client.post(url, json=payload, headers=headers)
+            elapsed_ms = (time.perf_counter() - start_t) * 1000.0
+
+            if resp.status_code != 200:
+                logger.warning(
+                    "vision %s HTTP %d",
+                    self.name, resp.status_code
                 )
+                return None
 
-        except Exception:
-            pass
+            data = resp.json()
+            content_blocks = data.get("content") or []
+            raw_text = "".join(
+                b.get("text", "") for b in content_blocks if isinstance(b, dict) and b.get("type") == "text"
+            ).strip()
 
-        return VisionAnalysisResult(
-            summary=raw_text,
-            category="GENERAL_IMAGE",
-            extracted_data={},
-            confidence=0.8,
-            tier=self.name,
-            elapsed_ms=elapsed_ms,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            pdf_pages_read=pdf_pages_read,
-            pdf_total_pages=pdf_total_pages,
-        )
+            if not raw_text:
+                return None
+
+            usage = data.get("usage") or {}
+            tokens_in = int(usage.get("input_tokens") or 0)
+            tokens_out = int(usage.get("output_tokens") or 0)
+
+            return _parse_vision_response(
+                self.name,
+                raw_text,
+                elapsed_ms,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                pdf_pages_read=pdf_pages_read,
+                pdf_total_pages=pdf_total_pages,
+            )
+
+        except Exception as exc:
+            # SECURITY (Test 9): NEVER log self._api_key or full headers/payload!
+            logger.warning("vision %s failed: %s", self.name, exc)
+            return None
+        finally:
+            if close_client and client is not None:
+                await client.aclose()
 
 
 class FallbackVisionAnalyzer:

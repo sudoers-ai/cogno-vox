@@ -349,3 +349,133 @@ async def test_fallback_vision_analyzer_all_tiers_fail_with_detailed_error_messa
     assert "tier1:local: returned empty result" in msg
     assert "tier2:cloud: Erro de autenticação API Key invalida" in msg
 
+
+@pytest.mark.asyncio
+async def test_provider_registry_base_url_resolution():
+    """Test 6: Um prefixo do registo (openai:, grok:, anthropic:) resolve para o endereço certo."""
+    from cogno_vox.factory import _build_vision_analyzer
+    from cogno_vox.vision import AnthropicVisionAnalyzer, OpenAICompatVisionAnalyzer
+
+    grok_analyzer = _build_vision_analyzer(TierConfig(provider="grok", model="grok-vision-beta"))
+    assert isinstance(grok_analyzer, OpenAICompatVisionAnalyzer)
+    assert grok_analyzer._base_url == "https://api.x.ai/v1"
+
+    openai_analyzer = _build_vision_analyzer(TierConfig(provider="openai", model="gpt-4o"))
+    assert isinstance(openai_analyzer, OpenAICompatVisionAnalyzer)
+    assert openai_analyzer._base_url == "https://api.openai.com/v1"
+
+    anthropic_analyzer = _build_vision_analyzer(TierConfig(provider="anthropic", model="claude-3-5-sonnet"))
+    assert isinstance(anthropic_analyzer, AnthropicVisionAnalyzer)
+    assert anthropic_analyzer._base_url == "https://api.anthropic.com"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_vision_analyzer_block_format():
+    """Test 7: anthropic: monta o pedido no formato de blocos (type: image, source.type: base64), não como URL de dados."""
+    import json
+    from cogno_vox.vision import AnthropicVisionAnalyzer
+
+    captured_request = {}
+
+    def handler(request: httpx.Request):
+        captured_request["url"] = str(request.url)
+        captured_request["headers"] = dict(request.headers)
+        captured_request["payload"] = json.loads(request.read().decode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "content": [{"type": "text", "text": "Claude visual Analysis"}],
+                "usage": {"input_tokens": 150, "output_tokens": 30},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tier = TierConfig(provider="anthropic", model="claude-3-5-sonnet-20241022", api_key="sk-ant-test-key")
+        analyzer = AnthropicVisionAnalyzer(tier, client=client)
+
+        res = await analyzer.analyze(b"\x89PNG\r\n\x1a\nfake_png_data", "test.png")
+        assert res is not None
+        assert res.summary == "Claude visual Analysis"
+        assert res.tokens_in == 150
+        assert res.tokens_out == 30
+
+        assert captured_request["url"] == "https://api.anthropic.com/v1/messages"
+        assert captured_request["headers"]["x-api-key"] == "sk-ant-test-key"
+        assert captured_request["headers"]["anthropic-version"] == "2023-06-01"
+
+        payload = captured_request["payload"]
+        assert payload["model"] == "claude-3-5-sonnet-20241022"
+        content = payload["messages"][0]["content"]
+
+        text_block = next(b for b in content if b.get("type") == "text")
+        image_block = next(b for b in content if b.get("type") == "image")
+
+        assert text_block["text"]
+        assert image_block["source"]["type"] == "base64"
+        assert image_block["source"]["media_type"] == "image/png"
+        assert isinstance(image_block["source"]["data"], str)
+
+        payload_str = json.dumps(payload)
+        assert "image_url" not in payload_str
+
+
+@pytest.mark.asyncio
+async def test_fallback_chain_degrades_when_cloud_key_missing_or_failed():
+    """Test 8: Um cliente sem chave para o provedor escolhido degrada para o local e regista."""
+    from cogno_vox.vision import FallbackVisionAnalyzer, OpenAICompatVisionAnalyzer
+
+    mock_cloud_fail = httpx.MockTransport(lambda req: httpx.Response(401, json={"error": "Unauthorized"}))
+    mock_local_success = httpx.MockTransport(
+        lambda req: httpx.Response(200, json={"choices": [{"message": {"content": "Local Qwen3.5 answer"}}]})
+    )
+
+    async with httpx.AsyncClient(transport=mock_cloud_fail) as client_cloud, \
+               httpx.AsyncClient(transport=mock_local_success) as client_local:
+
+        tier_cloud = TierConfig(provider="openai", model="gpt-4o", api_key="")
+        tier_local = TierConfig(provider="local", model="qwen3.5:8b", base_url="http://localhost:11434/v1")
+
+        analyzer_cloud = OpenAICompatVisionAnalyzer(tier_cloud, client=client_cloud)
+        analyzer_local = OpenAICompatVisionAnalyzer(tier_local, client=client_local)
+
+        chain = FallbackVisionAnalyzer([analyzer_cloud, analyzer_local])
+        res = await chain.analyze(b"PNG_BYTES", "test.png")
+
+        assert res is not None
+        assert res.summary == "Local Qwen3.5 answer"
+        assert res.tier == "local:qwen3.5:8b"
+
+
+@pytest.mark.asyncio
+async def test_byok_api_key_never_leaks_in_logs_or_exceptions(caplog):
+    """Test 9: A chave NUNCA aparece em log, erro ou traço (é BYOK: a chave é do cliente)."""
+    import logging
+    from cogno_vox.vision import AnthropicVisionAnalyzer, OpenAICompatVisionAnalyzer
+
+    secret_key = "sk-secret-byok-key-999888777666"
+
+    def failing_handler(request: httpx.Request):
+        raise httpx.ConnectError(f"Connection failed for request: {request.url}")
+
+    transport = httpx.MockTransport(failing_handler)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        tier_ant = TierConfig(provider="anthropic", model="claude-3-haiku", api_key=secret_key)
+        ant_analyzer = AnthropicVisionAnalyzer(tier_ant, client=client)
+
+        with caplog.at_level(logging.WARNING):
+            res1 = await ant_analyzer.analyze(b"FAKE_BYTES", "test.png")
+            assert res1 is None
+
+        tier_oai = TierConfig(provider="openai", model="gpt-4o", api_key=secret_key)
+        oai_analyzer = OpenAICompatVisionAnalyzer(tier_oai, client=client)
+
+        with caplog.at_level(logging.WARNING):
+            res2 = await oai_analyzer.analyze(b"FAKE_BYTES", "test.png")
+            assert res2 is None
+
+    full_log_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert secret_key not in full_log_text
+
+
