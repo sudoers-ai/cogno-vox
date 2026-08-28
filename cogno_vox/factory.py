@@ -9,6 +9,7 @@ the chain in order. Unlike the parent, it reads NO YAML and NO env contextvar.
 from __future__ import annotations
 
 import logging
+import os
 from typing import cast
 
 from cogno_vox.audio_utils import ffmpeg_available
@@ -121,8 +122,6 @@ def create_synthesizer(config: VoxConfig) -> FallbackSynthesizer:
          for c in config.synthesize_tiers]
     )
 
-
-import os
 
 _VISION_PROVIDERS: dict[str, tuple[str, str]] = {
     "openai":     ("https://api.openai.com/v1", "OPENAI_API_KEY"),
