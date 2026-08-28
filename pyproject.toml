@@ -54,7 +54,7 @@ server = ["fastapi>=0.110", "uvicorn>=0.29"]
 # a video with no scene changes returns — so a deployment missing this dependency processes
 # video, records nothing, and answers as if the video had nothing in it. Declared here because
 # a firm dependency that lives only in an `except ImportError` is invisible to whoever installs.
-vision = ["opencv-python-headless>=4.9", "numpy>=1.26"]
+vision = ["opencv-python-headless>=4.9", "numpy>=1.26", "pypdfium2>=5.0"]
 
 [build-system]
 requires = ["setuptools>=77.0.3", "wheel"]

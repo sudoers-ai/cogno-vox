@@ -37,6 +37,8 @@ DEFAULT_VISION_PROMPT = (
 def _detect_mime_type(filename_or_mime: str, media_bytes: bytes) -> str:
     """Infer MIME type from filename/MIME string or magic bytes."""
     val = filename_or_mime.lower()
+    if "pdf" in val or val.endswith(".pdf"):
+        return "application/pdf"
     if "jpeg" in val or val.endswith(".jpg") or val.endswith(".jpeg"):
         return "image/jpeg"
     if "png" in val or val.endswith(".png"):
@@ -51,6 +53,8 @@ def _detect_mime_type(filename_or_mime: str, media_bytes: bytes) -> str:
         return "video/webm"
 
     # Check magic numbers
+    if media_bytes.startswith(b"%PDF"):
+        return "application/pdf"
     if media_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if media_bytes.startswith(b"\xff\xd8\xff"):
@@ -88,8 +92,36 @@ class OpenAICompatVisionAnalyzer:
 
         mime = _detect_mime_type(filename_or_mime, media_bytes)
         images_b64: list[str] = []
+        pdf_pages_read = 0
+        pdf_total_pages = 0
 
-        if mime.startswith("video/"):
+        if mime == "application/pdf":
+            try:
+                import io
+                import pypdfium2 as pdfium
+            except ImportError as err:
+                raise VisionError(
+                    "PDF vision conversion requires 'pypdfium2'. Please install with: pip install cogno-vox[vision] or pip install pypdfium2"
+                ) from err
+
+            try:
+                pdf = pdfium.PdfDocument(media_bytes)
+                pdf_total_pages = len(pdf)
+                max_pages = 5
+                pdf_pages_read = min(pdf_total_pages, max_pages)
+
+                for i in range(pdf_pages_read):
+                    image = pdf[i].render(scale=2).to_pil()
+                    buf = io.BytesIO()
+                    image.save(buf, format="JPEG")
+                    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                    images_b64.append(f"data:image/jpeg;base64,{b64}")
+            except Exception as exc:
+                if isinstance(exc, VisionError):
+                    raise
+                raise VisionError(f"Failed to render PDF pages for vision analysis: {exc}") from exc
+
+        elif mime.startswith("video/"):
             # Extract keyframes for video
             keyframes = extract_keyframes(media_bytes, max_frames=8)
             if not keyframes:
@@ -148,11 +180,22 @@ class OpenAICompatVisionAnalyzer:
             if not choices:
                 return None
 
+            usage = data.get("usage") or {}
+            tokens_in = int(usage.get("prompt_tokens") or usage.get("prompt_eval_count") or 0)
+            tokens_out = int(usage.get("completion_tokens") or usage.get("eval_count") or 0)
+
             raw_text = choices[0].get("message", {}).get("content", "").strip()
             if not raw_text:
                 return None
 
-            return self._parse_response(raw_text, elapsed_ms)
+            return self._parse_response(
+                raw_text,
+                elapsed_ms,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                pdf_pages_read=pdf_pages_read,
+                pdf_total_pages=pdf_total_pages,
+            )
 
         except Exception as exc:
             logger.warning("vision %s failed: %s", self.name, exc)
@@ -161,7 +204,16 @@ class OpenAICompatVisionAnalyzer:
             if close_client and client is not None:
                 await client.aclose()
 
-    def _parse_response(self, raw_text: str, elapsed_ms: float) -> VisionAnalysisResult:
+    def _parse_response(
+        self,
+        raw_text: str,
+        elapsed_ms: float,
+        *,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        pdf_pages_read: int = 0,
+        pdf_total_pages: int = 0,
+    ) -> VisionAnalysisResult:
         """Attempt JSON extraction or fallback to plain summary."""
         # Clean markdown code blocks if present
         text = raw_text
@@ -182,6 +234,10 @@ class OpenAICompatVisionAnalyzer:
                     confidence=float(parsed.get("confidence") or 1.0),
                     tier=self.name,
                     elapsed_ms=elapsed_ms,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    pdf_pages_read=pdf_pages_read,
+                    pdf_total_pages=pdf_total_pages,
                 )
 
         except Exception:
@@ -194,6 +250,10 @@ class OpenAICompatVisionAnalyzer:
             confidence=0.8,
             tier=self.name,
             elapsed_ms=elapsed_ms,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            pdf_pages_read=pdf_pages_read,
+            pdf_total_pages=pdf_total_pages,
         )
 
 

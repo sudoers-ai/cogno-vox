@@ -148,4 +148,9 @@ class VisionAnalysisResult:
     confidence: float = 1.0
     tier: str = ""        # "<provider>:<model>" that performed analysis
     elapsed_ms: float = 0.0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    pdf_pages_read: int = 0
+    pdf_total_pages: int = 0
+
 
