@@ -9,10 +9,10 @@ from cogno_vox import clean_text_for_tts, split_text_for_tts
 
 def test_strips_emoji_from_a_real_secretary_reply():
     # the exact shape that was being read out loud (emoji verbalised as words)
-    reply = "Prontinho, Vinicius! ✅ Sua consulta ficou marcada para 20/07 às 10h. 📅 😊"
+    reply = "Prontinho, Heitor! ✅ Sua consulta ficou marcada para 20/07 às 10h. 📅 😊"
     out = clean_text_for_tts(reply)
     assert "✅" not in out and "📅" not in out and "😊" not in out
-    assert out == "Prontinho, Vinicius! Sua consulta ficou marcada para 20/07 às 10h."
+    assert out == "Prontinho, Heitor! Sua consulta ficou marcada para 20/07 às 10h."
 
 
 @pytest.mark.parametrize("emoji", ["😊", "👋", "📅", "✅", "❤️", "🙏", "🏴‍☠️", "1️⃣", "🇧🇷", "⏰", "⭐", "➡️"])
