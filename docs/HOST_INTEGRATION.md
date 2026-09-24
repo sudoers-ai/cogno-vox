@@ -83,6 +83,8 @@ only when every tier fails.
 | Channel delivery (`sendVoice`/`sendMedia`) + ordering/delay | host |
 | Channel-mandated format choice | host (lib offers `opus`/`mp3`) |
 | Audio ⇆ text conversion + provider fallback | **cogno-vox** |
+| PDF → text layer in a sandboxed worker (`PdfTextExtractor`) | **cogno-vox** |
+| Upload limits a plan allows (`max_bytes`, `max_pages`, `timeout_s`), the job runner | host |
 
 ## Local servers
 
@@ -145,3 +147,14 @@ TierConfig(provider="local",  model="kokoro")          # "" — cannot be shaped
 It is not inferable from the adapter: `OpenAICompatSynthesizer` drives OpenAI, Kokoro, Dia and
 Orpheus over one HTTP shape and only the first honours `instructions`. Leaving it unset is the
 safe default — the tier simply speaks unshaped.
+
+
+## PDF documents — the extractor a document index is handed
+
+A host that indexes documents (`cogno_engram.ingest.ingest`) passes a `PdfTextExtractor` as the
+`extractor`; the engram calls it with the ceilings as keywords and reads the answer by
+attribute. Wire it once, at boot, and run `await extractor.selfcheck()` there too: every value
+it returns must be a refusal (`PermissionError`, `OSError:24`, `OSError`, `MemoryError`), and
+anything reading `allowed` is a door left open on that platform. The worker needs POSIX
+`resource` limits; without them every extraction fails (`invalid`) rather than running outside
+the sandbox.

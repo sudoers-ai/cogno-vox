@@ -55,6 +55,10 @@ server = ["fastapi>=0.110", "uvicorn>=0.29"]
 # video, records nothing, and answers as if the video had nothing in it. Declared here because
 # a firm dependency that lives only in an `except ImportError` is invisible to whoever installs.
 vision = ["opencv-python-headless>=4.9", "numpy>=1.26", "pypdfium2>=5.0"]
+# The TEXT LAYER of a PDF, read in a sandboxed worker (`cogno_vox.pdf_text`) — for a host that
+# indexes documents. ONLY the parser: none of `vision`'s opencv/numpy, which text extraction
+# never touches and which a host indexing documents should not have to install.
+pdf = ["pypdfium2>=5.0"]
 
 [build-system]
 requires = ["setuptools>=77.0.3", "wheel"]
