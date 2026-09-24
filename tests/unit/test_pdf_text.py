@@ -181,12 +181,36 @@ async def test_the_worker_can_open_no_socket_no_file_and_cannot_balloon():
     assert shut == {"socket": "PermissionError",            # the Python patch
                     "raw_socket": "OSError:24",             # the KERNEL: EMFILE, no descriptor
                     "open": "OSError",
+                    "inherited": [],
                     "memory": "MemoryError"}
     # CONTROL — the very calls the worker is refused succeed in this process.
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.close()
     fd = os.open(os.devnull, os.O_RDONLY)
     os.close(fd)
+
+
+def test_an_inherited_socket_is_closed_before_the_file_is_read(tmp_path):
+    """The descriptor limit refuses NEW descriptors; an INHERITED socket would still be network.
+    Spawn the worker by hand, handing it an open socket, and ask from inside what it holds."""
+    import json
+    import subprocess
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        fd = sock.fileno()
+        # CONTROL — the descriptor really crosses into a child spawned this way.
+        seen = subprocess.run([sys.executable, "-E", "-c", f"import os; os.fstat({fd})"],
+                              pass_fds=(fd,), capture_output=True)
+        assert seen.returncode == 0
+        out = subprocess.run([sys.executable, "-E", "-c", pdf_text._WORKER_SOURCE, "selfcheck",
+                              "0", str(512 * 1024 * 1024), "5", "0"],
+                             pass_fds=(fd,), stdin=subprocess.DEVNULL, capture_output=True,
+                             cwd=tmp_path, timeout=60)
+        report = json.loads(out.stdout)
+        assert report["inherited"] == [] and report["raw_socket"] == "OSError:24"
+    finally:
+        sock.close()
 
 
 async def test_the_worker_inherits_no_environment_and_runs_isolated(monkeypatch):

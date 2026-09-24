@@ -9,8 +9,9 @@ nothing from ``cogno_vox`` so that running it needs nothing on ``sys.path`` but 
 **The sandbox, applied AFTER the parser is loaded and BEFORE a byte of the file is read**
 (:func:`sandbox`):
 
-* every descriptor above stdio CLOSED and ``RLIMIT_NOFILE`` set to 3 — the process can open NO
-  new file descriptor, which means no socket (network), no file and no pipe. This is the
+* every descriptor above stdio CLOSED (nothing inherited — an inherited socket would be network
+  without opening anything) and ``RLIMIT_NOFILE`` set to 3 — the process can open NO new file
+  descriptor, which means no socket (network), no file and no pipe. This is the
   no-network rule enforced by the KERNEL, for the native parser too, not a Python patch around
   it (the Python ``socket`` is ALSO replaced, for a readable error). Because nothing can be
   opened afterwards, every lazily-loaded path is exercised first on a document of our own
@@ -56,9 +57,11 @@ def sandbox(*, memory_bytes: int, cpu_seconds: int) -> None:  # pragma: no cover
     socket.socket = _refuse  # type: ignore[assignment,misc]
     socket.create_connection = _refuse
     socket.getaddrinfo = _refuse
-    # Close everything above stdio, THEN cap at 3: a descriptor limit only refuses numbers at or
-    # above it, so a free hole below the highest open descriptor would still be handed out. With
-    # 0, 1 and 2 taken and nothing else, the next descriptor would be 3 — refused.
+    # Two different doors. The limit of 3 (last line) refuses every NEW descriptor: 0, 1 and 2
+    # are taken, and a new one would have to be numbered below the limit. It does nothing about
+    # a descriptor the process INHERITED — an open socket handed down by whatever spawned it is
+    # network without opening anything. So everything above stdio is closed first. The parent
+    # here spawns with `close_fds`, so nothing should arrive; this holds even if something does.
     soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     os.closerange(3, soft if 0 < soft < 1 << 20 else 4096)
     resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
@@ -185,6 +188,14 @@ def selfcheck() -> dict:  # pragma: no cover — worker process only
         out["open"] = "allowed"
     except OSError as exc:
         out["open"] = type(exc).__name__
+    inherited = []
+    for fd in range(3, 256):
+        try:
+            os.fstat(fd)
+            inherited.append(fd)
+        except OSError:
+            pass
+    out["inherited"] = inherited
     try:
         blob = bytearray(4 * 1024 * 1024 * 1024)      # far past any memory ceiling we set
         out["memory"] = "allowed" if blob else "allowed"

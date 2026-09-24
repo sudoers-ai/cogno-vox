@@ -161,7 +161,8 @@ class PdfTextExtractor:
     async def selfcheck(self, *, timeout_s: float = 30.0) -> dict:
         """What the worker's sandbox refuses, measured from inside it:
         ``{"socket", "raw_socket", "open", "memory"}`` — anything reading ``allowed`` is a door
-        left open. Cheap; a host may run it once at boot."""
+        left open — and ``inherited``, the descriptors above stdio it still holds (``[]``).
+        Cheap; a host may run it once at boot."""
         return await self._run("selfcheck", b"", max_pages=0, timeout_s=timeout_s)
 
     async def _run(self, mode: str, data: bytes, *, max_pages: int, timeout_s: float) -> dict:
