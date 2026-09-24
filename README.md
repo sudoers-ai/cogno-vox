@@ -26,6 +26,33 @@ Like `cogno-anima`'s `LLMBackend`/`Embedder` and `cogno-engram`'s three ports, e
 
 `OpenAICompat*` covers any `/v1/audio/transcriptions` or `/v1/audio/speech` server — local or cloud differ only by `base_url`/`api_key`, no SDK needed (just `httpx`).
 
+## PDF text layer — an untrusted file, read in a sandbox
+
+`PdfTextExtractor` turns an uploaded PDF into pages of text for a document index (it satisfies
+`cogno_engram.documents.TextExtractor` **structurally** — neither library imports the other).
+Install the parser alone with `pip install "cogno-vox[pdf]"` (only `pypdfium2`; none of the
+`vision` extra's opencv/numpy).
+
+```python
+from cogno_vox import PdfTextExtractor
+
+pdf = PdfTextExtractor()                        # raises ImportError at wiring time without pypdfium2
+text = await pdf.extract(data, media_type="application/pdf",
+                         max_bytes=10 * 1024 * 1024, max_pages=300, timeout_s=60)
+# text.pages[i].number / .text ; text.outline[j].level / .title / .page  (bookmarks)
+```
+
+The file is treated as hostile: the byte ceiling and the PDF header are checked **before** a
+worker exists; the worker is a separate process (`python -E -c`, empty directory, no inherited
+environment) killed at `timeout_s` and carrying its own CPU limit; inside it every descriptor
+above stdio is closed and the descriptor limit is 3 — **no socket, no file** can be opened, by
+Python or by the native parser — with an address-space cap and no fork; the page count is read
+from the page tree and refused over `max_pages` before any page is read; only the text layer is
+read (no forms/JavaScript, attachments, links or rendering). Failures raise `PdfExtractionError`
+with one of five reasons: `no_text` (a scanned PDF — OCR is not included), `over_limit`,
+`encrypted`, `invalid`, `timeout`. `await pdf.selfcheck()` reports, from inside the sandbox,
+what it refuses.
+
 ## Two ways to shape a voice
 
 Both are engine-agnostic in, engine-specific out, and both are **preferences** — an engine that cannot honour one speaks the same words and the call succeeds.

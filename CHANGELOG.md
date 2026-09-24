@@ -4,6 +4,23 @@
 
 ### Added
 
+- **`PdfTextExtractor`** (`cogno_vox.pdf_text`) — the TEXT LAYER of an untrusted PDF, read in a
+  sandboxed worker (F2.4). Satisfies `cogno_engram.documents.TextExtractor` structurally (no
+  import either way): bytes + `max_bytes`/`max_pages`/`timeout_s` in, `pages[].number/.text` and
+  `outline[].level/.title/.page` out, or `PdfExtractionError.reason` in
+  `no_text`/`over_limit`/`encrypted`/`invalid`/`timeout`.
+  - byte ceiling and header checked BEFORE a worker exists; page count refused over
+    `max_pages` BEFORE any page is read;
+  - worker = separate process (`python -E -c`, empty cwd, minimal env) killed at `timeout_s`,
+    with its own `RLIMIT_CPU`; inside, every descriptor above stdio is closed and
+    `RLIMIT_NOFILE` = 3 (no socket, no file — at the kernel level, measured by `selfcheck()`),
+    `RLIMIT_AS`, `RLIMIT_FSIZE` 0, `RLIMIT_NPROC` 0; lazily-loaded paths warmed up on a
+    document of our own first (measured: the first `get_text_range` imports a codec, which
+    opens a file);
+  - text layer only: forms never initialised (no JavaScript), no attachments, no links, no
+    rendering.
+- **Extra `pdf`** = `pypdfium2` alone (no opencv/numpy). CI installs `.[vision,pdf]`.
+
 - **Delivery profile** — `DeliveryProfile(style, pace, energy)`, an engine-agnostic description
   of HOW an utterance is said, distinct from the existing `emotion` cue (one discrete tag).
   `synthesize(..., delivery=)` carries it; `cogno_vox.delivery` renders it per engine family

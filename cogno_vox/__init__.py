@@ -57,6 +57,12 @@ from cogno_vox.types import (
     VoxConfig,
 )
 from cogno_vox.vision import FallbackVisionAnalyzer, OpenAICompatVisionAnalyzer
+from cogno_vox.pdf_text import (
+    PDF_REASONS,
+    PdfExtractionError,
+    PdfTextExtractor,
+    pdf_support_available,
+)
 
 __version__ = "0.1.0"
 
@@ -82,6 +88,8 @@ __all__ = [
     "ElevenLabsSynthesizer", "GeminiSynthesizer",
     # vision backends
     "OpenAICompatVisionAnalyzer",
+    # PDF text layer, sandboxed (cogno_engram.documents.TextExtractor, structurally)
+    "PdfTextExtractor", "PdfExtractionError", "PDF_REASONS", "pdf_support_available",
     # factory + utils
     "create_transcriber", "create_synthesizer", "create_vision_analyzer",
     "split_text_for_tts",

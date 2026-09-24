@@ -53,7 +53,7 @@ jobs:
         # suite still exercises `video_sampler` for real; without it the module sits at 25%
         # coverage and the tests behave differently here than on a machine that happens to
         # have opencv — which is the very defect this PR fixes.
-        run: pip install -e ".[vision]"
+        run: pip install -e ".[vision,pdf]"
       - name: Unit tests
         # Integration tests against a real local Whisper/Kokoro server auto-skip
         # without VOX_*_BASE_URL env vars; the unit suite mocks all HTTP.
