@@ -64,7 +64,7 @@ from cogno_vox.pdf_text import (
     pdf_support_available,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "__version__",
