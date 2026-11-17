@@ -479,3 +479,61 @@ async def test_byok_api_key_never_leaks_in_logs_or_exceptions(caplog):
     assert secret_key not in full_log_text
 
 
+@pytest.mark.asyncio
+async def test_openai_compat_reasoning_effort_none_only_for_local_tier():
+    """The LOCAL tier turns reasoning off (so WhatsApp images stay inside the 60s
+    budget); cloud providers never receive ``reasoning_effort``, and anthropic is
+    untouched."""
+    import json
+
+    captured_payload: dict = {}
+
+    def handler(request: httpx.Request):
+        captured_payload.clear()
+        captured_payload.update(json.loads(request.read()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    transport = httpx.MockTransport(handler)
+
+    # LOCAL tier → reasoning_effort="none" is present.
+    async with httpx.AsyncClient(transport=transport) as client:
+        tier_local = TierConfig(provider="local", model="qwen3.5:8b", base_url="http://localhost:11434/v1")
+        analyzer = OpenAICompatVisionAnalyzer(tier_local, client=client)
+        res = await analyzer.analyze(b"PNG_BYTES", "img.png")
+        assert res is not None
+        assert captured_payload.get("reasoning_effort") == "none"
+
+    # Cloud providers → the key MUST be absent.
+    for cloud_provider in ("openai", "groq"):
+        async with httpx.AsyncClient(transport=transport) as client:
+            tier_cloud = TierConfig(provider=cloud_provider, model="gpt-4o")
+            analyzer = OpenAICompatVisionAnalyzer(tier_cloud, client=client)
+            res = await analyzer.analyze(b"PNG_BYTES", "img.png")
+            assert res is not None
+            assert "reasoning_effort" not in captured_payload
+
+    # Anthropic is untouched: its payload never carries reasoning_effort.
+    from cogno_vox.vision import AnthropicVisionAnalyzer
+
+    captured_ant: dict = {}
+
+    def ant_handler(request: httpx.Request):
+        captured_ant.clear()
+        captured_ant.update(json.loads(request.read()))
+        return httpx.Response(
+            200,
+            json={
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    ant_transport = httpx.MockTransport(ant_handler)
+    async with httpx.AsyncClient(transport=ant_transport) as client:
+        tier_ant = TierConfig(provider="anthropic", model="claude-3-5-sonnet-20241022", api_key="sk-ant-test")
+        analyzer = AnthropicVisionAnalyzer(tier_ant, client=client)
+        res = await analyzer.analyze(b"\x89PNG\r\n\x1a\nfake", "img.png")
+        assert res is not None
+        assert "reasoning_effort" not in captured_ant
+
+
