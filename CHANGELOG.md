@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`OpenAICompatVisionAnalyzer` disables reasoning at the LOCAL tier only.** A local vision
+  reader (e.g. `qwen3.5:8b`) reasons by default and blows past the 60s image budget on
+  WhatsApp. The request now carries `reasoning_effort="none"` when `tier.provider == "local"`;
+  cloud providers (`openai`, `groq`, …) never receive the field, and the Anthropic backend is
+  untouched. The 60s timeout is unchanged.
+  - Measured on a synthetic image: `qwen3.5:8b` with `reasoning_effort="none"` → HTTP 200 in
+    24.4s (<60s); `llava:latest` with `none` → HTTP 200 in 11.0s, no 4xx (the fallback does
+    not trip).
+
 ## 0.1.1 — 2026-11-06 — release to PyPI of the changes below
 
 Publishes every «Unreleased» entry below, merged since 0.1.0. No change of its own.

@@ -212,6 +212,11 @@ class OpenAICompatVisionAnalyzer:
             "messages": [{"role": "user", "content": content_payload}],
             "temperature": 0.1,
         }
+        # Local vision readers (e.g. qwen3.5:8b) reason by default, which blows past the
+        # 60s image budget on WhatsApp. Turn reasoning off at the LOCAL tier only; cloud
+        # providers (openai/groq/…) never receive this field.
+        if (self._tier.provider or "").lower() == "local":
+            payload["reasoning_effort"] = "none"
 
         url = f"{self._base_url}/chat/completions"
         start_t = time.perf_counter()
