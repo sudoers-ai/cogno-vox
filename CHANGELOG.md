@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.2 — 2026-11-17 — fix: local vision reader no longer reasons by default
+## Unreleased
 
 ### Fixed
 
